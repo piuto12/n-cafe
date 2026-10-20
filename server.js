@@ -416,16 +416,18 @@ class DB {
     const where = {};
     let index = 0;
     match[1].split(/\s+AND\s+/i).forEach(condition => {
-      const part = condition.match(/(?:LOWER\()?([a-zA-Z_]+)\)?\s*(=|!=|<=|>=|<|>)\s*(\?|'.*?'|".*?")/i);
+      const part = condition.match(/(?:LOWER\()?([a-zA-Z_]+)\)?\s*(=|!=|<=|>=|<|>)\s*(\?|[-+]?\d+(?:\.\d+)?|'.*?'|".*?")/i);
       if (!part) return;
       if (/^LOWER\(/i.test(condition)) return;
       const valueToken = part[3];
-      const rawValue = valueToken === '?'
-        ? params[index++]
-        : valueToken.slice(1, -1);
-      const value = typeof rawValue === 'string' && /^-?\d+(?:\.\d+)?$/.test(rawValue)
-        ? Number(rawValue)
-        : rawValue;
+      let value;
+      if (valueToken === '?') {
+        value = params[index++];
+      } else if (/^['"]/.test(valueToken)) {
+        value = valueToken.slice(1, -1);
+      } else {
+        value = Number(valueToken);
+      }
       where[part[1]] = part[2] === '=' ? value : {
         '!=': { $ne: value }, '<=': { $lte: value }, '>=': { $gte: value },
         '<': { $lt: value }, '>': { $gt: value }
@@ -482,6 +484,9 @@ class DB {
           update[field] = params[parameterIndex++];
         } else if (/^'.*'$/.test(rawValue) || /^".*"$/.test(rawValue)) {
           update[field] = rawValue.slice(1, -1);
+        }
+        if (table === 'food_items' && field === 'listed') {
+          update[field] = Boolean(update[field]) ? 1 : 0;
         }
       });
       const where = this.mongoWhere(`WHERE ${updateMatch[2]}`, params.slice(parameterIndex));
@@ -590,6 +595,15 @@ async function initializeMongoDatabase() {
     { key: 'food_listing_migration_v1' },
     { $setOnInsert: { key: 'food_listing_migration_v1', value: 'completed' } },
     { upsert: true }
+  );
+  await settings.updateOne(
+    { key: 'food_listing_type_migration_v2' },
+    { $setOnInsert: { key: 'food_listing_type_migration_v2', value: 'completed' } },
+    { upsert: true }
+  );
+  await foodItems.updateMany(
+    { listed: { $in: [true, false] } },
+    [{ $set: { listed: { $cond: [{ $eq: ['$listed', true] }, 1, 0] } } }]
   );
 
   const seedFoods = [
@@ -1230,7 +1244,7 @@ app.delete('/api/ingredients/:id', authenticateToken(['admin']), (req, res) => {
 // --- API STOCK LOCKS ENDPOINTS ---
 
 // Create Stock Hold Lock
-app.post('/api/locks', (req, res) => {
+app.post('/api/locks', async (req, res) => {
   const { cartItems } = req.body; // Array of { id, quantity }
   if (!Array.isArray(cartItems) || cartItems.length === 0) {
     return res.status(400).json({ error: 'Cart is empty.' });
@@ -1249,6 +1263,78 @@ app.post('/api/locks', (req, res) => {
 
   const lockId = 'LK-' + Math.floor(100000 + Math.random() * 900000).toString();
   const expiry = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+  if (requested.size === 0) return res.json({ lockId });
+
+  if (db.isMongo) {
+    const session = db.mongoClient.startSession();
+    try {
+      let conflicts = [];
+      await session.withTransaction(async () => {
+        const locks = db.mongoCollection('locks');
+        const foodItems = db.mongoCollection('food_items');
+        const now = Date.now();
+        await locks.deleteMany({ expiryTime: { $lte: now } }, { session });
+        const activeLocks = await locks.find(
+          { expiryTime: { $gt: now } },
+          { session }
+        ).toArray();
+        const lockTotals = new Map();
+        activeLocks.forEach((lock) => {
+          lockTotals.set(
+            lock.foodItemId,
+            (lockTotals.get(lock.foodItemId) || 0) + Number(lock.quantity || 0)
+          );
+        });
+        const foods = await foodItems.find({
+          id: { $in: [...requested.keys()] },
+          listed: 1,
+          stock: { $gt: 0 }
+        }, { session }).toArray();
+        const foodById = new Map(foods.map((food) => [food.id, food]));
+        conflicts = [];
+        requested.forEach((quantity, itemId) => {
+          const food = foodById.get(itemId);
+          const available = food
+            ? Number(food.stock || 0) - (lockTotals.get(itemId) || 0)
+            : 0;
+          if (!food || quantity > available) {
+            conflicts.push(`${itemId} (Only ${Math.max(0, available)} available)`);
+          }
+        });
+        if (conflicts.length > 0) return;
+
+        for (const itemId of requested.keys()) {
+          const result = await foodItems.updateOne(
+            { id: itemId, listed: 1, stock: { $gt: 0 } },
+            { $inc: { reservationVersion: 1 } },
+            { session }
+          );
+          if (result.matchedCount !== 1) {
+            throw new Error('A food item changed while stock was being reserved.');
+          }
+        }
+        await locks.insertMany([...requested.entries()].map(([foodItemId, quantity]) => ({
+          id: lockId,
+          foodItemId,
+          quantity,
+          expiryTime: expiry
+        })), { session });
+      });
+      if (conflicts.length > 0) {
+        return res.status(409).json({
+          error: 'Some items are no longer available.',
+          details: conflicts
+        });
+      }
+      return res.json({ lockId });
+    } catch (err) {
+      console.error('MongoDB stock reservation failed:', err);
+      return res.status(500).json({ error: 'Unable to reserve stock.' });
+    } finally {
+      await session.endSession();
+    }
+  }
 
   db.serialize(() => {
     db.run("BEGIN IMMEDIATE TRANSACTION", (beginErr) => {
