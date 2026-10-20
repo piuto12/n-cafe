@@ -1140,6 +1140,17 @@ app.get('/api/food-items', (req, res) => {
 
 // Get the complete food catalog for the admin inventory view.
 app.get('/api/admin/food-items', authenticateToken(['admin']), (req, res) => {
+  if (db.isMongo) {
+    db.mongoCollection('food_items').find({}).toArray()
+      .then((foods) => res.json(foods.map((food) => ({
+        ...food,
+        offerPrice: food.offer_price,
+        listed: food.listed === true || Number(food.listed) === 1
+      }))))
+      .catch((err) => res.status(500).json({ error: err.message }));
+    return;
+  }
+
   db.all("SELECT id, name, price, stock, category, isveg, image, details, offer_price, COALESCE(listed, 1) AS listed FROM food_items", (err, foods) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(foods.map(f => ({ ...f, offerPrice: f.offer_price, listed: Boolean(f.listed) })));
