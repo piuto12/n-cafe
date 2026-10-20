@@ -446,7 +446,29 @@ class DB {
     const collection = this.mongoCollection(table);
 
     if (/^INSERT OR REPLACE INTO settings/i.test(statement)) {
-      return collection.updateOne({ key: params[0] }, { $set: { key: params[0], value: params[1] } }, { upsert: true })
+      const insertMatch = statement.match(
+        /^INSERT OR REPLACE INTO settings\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)$/i
+      );
+      if (!insertMatch) return done(new Error(`Unsupported settings insert: ${statement}`));
+      const fields = insertMatch[1].split(',').map((field) => field.trim());
+      const values = insertMatch[2].split(',').map((value) => value.trim());
+      if (fields.length !== values.length) {
+        return done(new Error(`Invalid settings insert: ${statement}`));
+      }
+      let parameterIndex = 0;
+      const document = Object.fromEntries(fields.map((field, index) => {
+        const token = values[index];
+        const value = token === '?'
+          ? params[parameterIndex++]
+          : /^'.*'$/.test(token) || /^".*"$/.test(token)
+            ? token.slice(1, -1)
+            : token;
+        return [field, value];
+      }));
+      if (document.key === undefined) {
+        return done(new Error(`Settings insert has no key: ${statement}`));
+      }
+      return collection.updateOne({ key: document.key }, { $set: document }, { upsert: true })
         .then(() => done(null)).catch(done);
     }
     if (/^INSERT INTO/i.test(statement)) {
@@ -1479,6 +1501,10 @@ app.post('/api/bookings/retrieve', (req, res) => {
 // Get Razorpay Configuration (Public)
 app.get('/api/payments/config', (req, res) => {
   db.get("SELECT value FROM settings WHERE key = 'razorpay_key_id'", (err, row) => {
+    if (err) {
+      console.error('Failed to load Razorpay configuration:', err);
+      return res.status(500).json({ error: 'Unable to load payment configuration.' });
+    }
     const keyId = row ? row.value : process.env.RAZORPAY_KEY_ID;
     if (keyId && keyId.trim() !== '') {
       res.json({ enabled: true, keyId: keyId.trim() });
@@ -1491,19 +1517,32 @@ app.get('/api/payments/config', (req, res) => {
 // Save Razorpay API Keys (Admin only)
 app.post('/api/settings/razorpay', authenticateToken(['admin']), (req, res) => {
   const { keyId, keySecret } = req.body;
-  if (!keyId || !keySecret) {
+  if (typeof keyId !== 'string' || typeof keySecret !== 'string' ||
+      !keyId.trim() || !keySecret.trim()) {
     return res.status(400).json({ error: 'Both Key ID and Key Secret are required.' });
   }
 
-  db.serialize(() => {
-    db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('razorpay_key_id', ?)", [keyId.trim()]);
-    db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('razorpay_key_secret', ?)", [keySecret.trim()], (err) => {
-      if (err) {
-        return res.status(500).json({ error: 'Failed to save Razorpay credentials.' });
+  db.run(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES ('razorpay_key_id', ?)",
+    [keyId.trim()],
+    (keyIdErr) => {
+      if (keyIdErr) {
+        console.error('Failed to save Razorpay Key ID:', keyIdErr);
+        return res.status(500).json({ error: 'Failed to save Razorpay Key ID.' });
       }
-      res.json({ success: true, message: 'Razorpay API credentials updated successfully.' });
-    });
-  });
+      db.run(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('razorpay_key_secret', ?)",
+        [keySecret.trim()],
+        (secretErr) => {
+          if (secretErr) {
+            console.error('Failed to save Razorpay Key Secret:', secretErr);
+            return res.status(500).json({ error: 'Failed to save Razorpay Key Secret.' });
+          }
+          res.json({ success: true, message: 'Razorpay API credentials updated successfully.' });
+        }
+      );
+    }
+  );
 });
 
 // Create Razorpay Order
