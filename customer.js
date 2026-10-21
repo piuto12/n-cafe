@@ -336,6 +336,8 @@ function addToCart(foodId) {
     .find(card => card.dataset.foodId === foodId)?.querySelector('img');
   const sourceRect = sourceImage ? sourceImage.getBoundingClientRect() : null;
   const sourceImageUrl = sourceImage ? (sourceImage.currentSrc || sourceImage.src) : null;
+  const cartButton = document.getElementById('cart-toggle-btn');
+  const cartRect = cartButton ? cartButton.getBoundingClientRect() : null;
   const cartItem = CanteenState.cart.find(c => c.id === foodId);
   let added = false;
   if (cartItem) {
@@ -354,34 +356,39 @@ function addToCart(foodId) {
   const activeCat = document.querySelector('.cat-btn.active');
   const searchVal = document.getElementById('search-food').value;
   renderFoodMenu(activeCat ? activeCat.dataset.category : 'all', searchVal);
-  if (added) animateCartAdd(sourceRect, sourceImageUrl);
+  if (added) animateCartAdd(sourceRect, sourceImageUrl, cartRect);
 }
 
-function animateCartAdd(sourceRect, sourceImageUrl) {
+function animateCartAdd(sourceRect, sourceImageUrl, cartRect) {
   const cartButton = document.getElementById('cart-toggle-btn');
   if (!cartButton) return;
 
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (!reduceMotion) {
-    cartButton.classList.remove('is-bumping');
-    void cartButton.offsetWidth;
-    cartButton.classList.add('is-bumping');
-    cartButton.addEventListener('animationend', () => {
-      cartButton.classList.remove('is-bumping');
-    }, { once: true });
+    cartButton.animate([
+      { transform: 'scale(1)' },
+      { transform: 'scale(1.2)', offset: 0.45 },
+      { transform: 'scale(1)' }
+    ], {
+      duration: 450,
+      easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)'
+    });
   }
 
-  if (!sourceRect || !sourceImageUrl || reduceMotion) return;
+  if (!sourceRect || !sourceImageUrl || !cartRect || reduceMotion) return;
 
-  const cartRect = cartButton.getBoundingClientRect();
+  const sourceX = sourceRect.left + sourceRect.width / 2;
+  const sourceY = sourceRect.top + sourceRect.height / 2;
+  const cartX = cartRect.left + cartRect.width / 2;
+  const cartY = cartRect.top + cartRect.height / 2;
   const flyingImage = document.createElement('img');
   flyingImage.src = sourceImageUrl;
   flyingImage.alt = '';
   flyingImage.setAttribute('aria-hidden', 'true');
   Object.assign(flyingImage.style, {
     position: 'fixed',
-    left: `${sourceRect.left + sourceRect.width / 2}px`,
-    top: `${sourceRect.top + sourceRect.height / 2}px`,
+    left: `${sourceX}px`,
+    top: `${sourceY}px`,
     width: `${sourceRect.width}px`,
     height: `${sourceRect.height}px`,
     objectFit: 'cover',
@@ -394,15 +401,11 @@ function animateCartAdd(sourceRect, sourceImageUrl) {
 
   const animation = flyingImage.animate([
     {
-      left: `${sourceRect.left + sourceRect.width / 2}px`,
-      top: `${sourceRect.top + sourceRect.height / 2}px`,
-      transform: 'translate(-50%, -50%) scale(1)',
+      transform: 'translate(0px, 0px) translate(-50%, -50%) scale(1)',
       opacity: 1
     },
     {
-      left: `${cartRect.left + cartRect.width / 2}px`,
-      top: `${cartRect.top + cartRect.height / 2}px`,
-      transform: 'translate(-50%, -50%) scale(0.15)',
+      transform: `translate(${cartX - sourceX}px, ${cartY - sourceY}px) translate(-50%, -50%) scale(0.15)`,
       opacity: 0.2
     }
   ], {
@@ -988,9 +991,20 @@ function renderTicketPage() {
         if (current) {
           const overlayExpired = document.getElementById('ticket-overlay-expired');
           const overlayRedeemed = document.getElementById('ticket-overlay-redeemed');
+          const overlayCancelled = document.getElementById('ticket-overlay-cancelled');
           const timerDisplay = document.getElementById('ticket-timer-display');
 
+          if (current.status === 'cancelled') {
+            overlayCancelled.style.display = 'flex';
+            overlayExpired.style.display = 'none';
+            overlayRedeemed.style.display = 'none';
+            timerDisplay.style.display = 'none';
+            clearInterval(CanteenState.ticketTimerInterval);
+            return;
+          }
+
           if (current.status === 'redeemed') {
+            overlayCancelled.style.display = 'none';
             overlayRedeemed.style.display = 'flex';
             overlayExpired.style.display = 'none';
             timerDisplay.style.display = 'none';
@@ -1008,6 +1022,7 @@ function renderTicketPage() {
             }
             overlayExpired.style.display = 'flex';
             overlayRedeemed.style.display = 'none';
+            overlayCancelled.style.display = 'none';
             timerDisplay.style.display = 'none';
             clearInterval(CanteenState.ticketTimerInterval);
             return;
@@ -1017,6 +1032,7 @@ function renderTicketPage() {
           timerDisplay.style.display = 'flex';
           overlayExpired.style.display = 'none';
           overlayRedeemed.style.display = 'none';
+          overlayCancelled.style.display = 'none';
 
           const hours = Math.floor(remainingMs / 3600000);
           const minutes = Math.floor((remainingMs % 3600000) / 60000);
@@ -1073,7 +1089,7 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
 
     if (res.ok) {
       const allTickets = await res.json();
-      const tickets = allTickets.filter(t => t.status !== 'redeemed');
+      const tickets = allTickets.filter(t => t.status !== 'redeemed' && t.status !== 'cancelled');
       CanteenState.retrievedTickets = tickets;
       
       const resultsContainer = document.getElementById('retrieval-results');

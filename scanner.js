@@ -318,9 +318,12 @@ const ScannerState = {
           this.startScannerCamera();
         }, 4000);
       } else if (res.status === 410) {
-        // Expired
-        document.querySelector('#scan-feedback-error .scan-feedback-title').innerText = 'TICKET EXPIRED';
-        document.querySelector('#scan-feedback-error .scan-feedback-desc').innerText = `Ticket expired past the ${this.ticketExpiryHours || 5}-hour limit.`;
+        const errData = await res.json().catch(() => ({}));
+        const isCancelled = errData.status === 'cancelled';
+        document.querySelector('#scan-feedback-error .scan-feedback-title').innerText = isCancelled ? 'TICKET CANCELLED' : 'TICKET EXPIRED';
+        document.querySelector('#scan-feedback-error .scan-feedback-desc').innerText = isCancelled
+          ? 'This ticket was cancelled by a cafe administrator.'
+          : `Ticket expired past the ${this.ticketExpiryHours || 5}-hour limit.`;
         feedbackError.style.display = 'flex';
         
         setTimeout(() => {

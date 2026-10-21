@@ -13,8 +13,8 @@
   --text-amber: #fbbf24;
   --danger: #ef4444;
   --success: #10b981;
-  --font-title: 'Playfair Display', serif;
-  --font-body: 'Outfit', sans-serif;
+  --font-title: 'Playfair Display', Georgia, serif;
+  --font-body: 'Outfit', Arial, sans-serif;
   --shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
   --glass-bg: rgba(18, 26, 22, 0.85);
   --glass-border: rgba(255, 255, 255, 0.06);
@@ -162,12 +162,6 @@ body {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(15px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes float {
-  0% { transform: translateY(0px); }
-  50% { transform: translateY(-8px); }
-  100% { transform: translateY(0px); }
 }
 
 @keyframes laser {
@@ -355,15 +349,6 @@ nav {
   transform: translateY(-3px) scale(1.04);
 }
 
-.cart-icon-btn.is-bumping {
-  animation: cart-button-bump 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-@keyframes cart-button-bump {
-  0%, 100% { transform: scale(1); }
-  45% { transform: scale(1.2); }
-}
-
 .cart-badge {
   position: absolute;
   top: -5px;
@@ -389,12 +374,6 @@ nav {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .cart-icon-btn.is-bumping {
-    animation: none;
-  }
-}
-
 /* Containers */
 main {
   max-width: 1200px;
@@ -412,6 +391,10 @@ main {
   display: block;
 }
 
+#view-home.active {
+  animation: none;
+}
+
 /* Banner Component */
 .hero-banner {
   background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.75)), var(--hero-image, url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80'));
@@ -425,7 +408,6 @@ main {
   border: 1px solid var(--border-dark);
   box-shadow: var(--shadow);
   margin-bottom: 3rem;
-  animation: float 6s ease-in-out infinite;
 }
 
 .hero-banner::before {
@@ -442,6 +424,7 @@ main {
 .hero-banner h2 {
   font-family: var(--font-title);
   font-size: 3rem;
+  line-height: 1.2;
   margin-bottom: 0.5rem;
   color: #fff;
 }
@@ -567,21 +550,29 @@ main {
   display: flex;
   flex-direction: column;
   position: relative;
+  min-height: 400px;
 }
 
 .food-card-skeleton {
-  min-height: 400px;
-  background: linear-gradient(110deg, var(--surface-dark) 8%, var(--surface-hover) 18%, var(--surface-dark) 33%);
-  background-size: 200% 100%;
+  background: var(--surface-dark);
+}
+
+.food-card-skeleton::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 8%, var(--surface-hover) 18%, transparent 33%);
+  content: '';
+  pointer-events: none;
+  transform: translateX(-100%);
   animation: food-skeleton-shimmer 1.5s linear infinite;
 }
 
 @keyframes food-skeleton-shimmer {
-  to { background-position-x: -200%; }
+  to { transform: translateX(100%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .food-card-skeleton {
+  .food-card-skeleton::after {
     animation: none;
   }
 }

@@ -6,6 +6,7 @@ const AdminState = {
   ingredients: [],
   transactions: [],
   bookings: [],
+  billStatusFilter: 'all',
   posCart: [],
   posBillingData: null,
   accountDetails: {
@@ -189,6 +190,10 @@ const AdminState = {
         this.updateDashboardMetricsOnly();
         this.updateSalesReportTable();
         this.updateHistoryTableOnly();
+        const billsTab = document.getElementById('admin-tab-7');
+        if (billsTab && billsTab.classList.contains('active')) {
+          this.updateBillsTableOnly();
+        }
       } catch (e) {
         console.warn("Auto-poller failed:", e);
       }
@@ -287,9 +292,7 @@ const AdminState = {
       const tr = document.createElement('tr');
       const timeStr = new Date(b.bookingTime).toLocaleString();
       const itemsList = b.items.map(i => `${i.name} (${i.quantity})`).join(', ');
-      const statusBadge = b.status === 'redeemed' 
-        ? `<span class="badge badge-success">Redeemed</span>` 
-        : (b.status === 'expired' ? `<span class="badge badge-danger">Expired</span>` : `<span class="badge badge-warning">Pending</span>`);
+      const statusBadge = this.getBookingStatusBadge(this.getBookingDisplayStatus(b));
 
       tr.innerHTML = `
         <td>
@@ -313,13 +316,57 @@ const AdminState = {
     });
 
     // Admin Tab Navigation Buttons
-    const tabs = [1, 2, 3, 4, 5, 6];
+    const tabs = [1, 2, 3, 4, 5, 6, 7];
     tabs.forEach(tNum => {
       const btn = document.getElementById(`btn-admin-tab-${tNum}`);
       if (btn) {
         btn.addEventListener('click', () => this.renderTab(tNum));
       }
     });
+
+    const billsStatusFilter = document.getElementById('bills-status-filter');
+    if (billsStatusFilter) {
+      billsStatusFilter.addEventListener('change', () => {
+        this.billStatusFilter = billsStatusFilter.value;
+        this.updateBillsTableOnly();
+      });
+    }
+
+    const billsTable = document.getElementById('bills-tbody');
+    if (billsTable) {
+      billsTable.addEventListener('click', async (event) => {
+        const button = event.target.closest('button[data-booking-action]');
+        if (!button) return;
+
+        const bookingId = button.dataset.bookingId;
+        const isCancel = button.dataset.bookingAction === 'cancel';
+        const confirmation = isCancel
+          ? 'Cancel this pending ticket? This invalidates the ticket only; it does not issue a refund or restore stock.'
+          : 'Permanently delete this bill record? Its accounting ledger entry will be retained.';
+        if (!window.confirm(confirmation)) return;
+
+        button.disabled = true;
+        try {
+          const endpoint = isCancel
+            ? `/api/bookings/${encodeURIComponent(bookingId)}/cancel`
+            : `/api/bookings/${encodeURIComponent(bookingId)}`;
+          const res = await this.fetchWithAuth(endpoint, { method: isCancel ? 'POST' : 'DELETE' });
+          const result = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(result.error || 'The bill action failed.');
+
+          await this.fetchBookings();
+          this.updateBillsTableOnly();
+          this.updateDashboardMetricsOnly();
+          this.updateSalesReportTable();
+          this.updateHistoryTableOnly();
+        } catch (error) {
+          if (error.message !== 'Unauthorized') {
+            alert(`Could not ${isCancel ? 'cancel' : 'delete'} bill: ${error.message}`);
+          }
+          button.disabled = false;
+        }
+      });
+    }
 
     // POS Clear Cart button
     const posClearBtn = document.getElementById('btn-pos-clear-cart');
@@ -1305,7 +1352,87 @@ const AdminState = {
       this.renderTab5();
     } else if (tNum === 6) {
       this.renderTab6();
+    } else if (tNum === 7) {
+      this.updateBillsTableOnly();
     }
+  },
+
+  getBookingDisplayStatus(booking) {
+    if (booking.status === 'pending' && new Date(booking.expiryTime).getTime() <= Date.now()) {
+      return 'expired';
+    }
+    return booking.status;
+  },
+
+  getBookingStatusBadge(status) {
+    if (status === 'redeemed') return '<span class="badge badge-success">Printed / Redeemed</span>';
+    if (status === 'expired') return '<span class="badge badge-danger">Expired</span>';
+    if (status === 'cancelled') return '<span class="badge badge-danger">Cancelled</span>';
+    return '<span class="badge badge-warning">Pending</span>';
+  },
+
+  updateBillsTableOnly() {
+    const tbody = document.getElementById('bills-tbody');
+    if (!tbody) return;
+
+    const filter = document.getElementById('bills-status-filter');
+    if (filter) filter.value = this.billStatusFilter;
+    const bookings = this.bookings.filter(booking => {
+      const status = this.getBookingDisplayStatus(booking);
+      return this.billStatusFilter === 'all' || status === this.billStatusFilter;
+    });
+    tbody.replaceChildren();
+
+    if (bookings.length === 0) {
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.colSpan = 7;
+      cell.textContent = 'No bills found for this status.';
+      cell.style.cssText = 'text-align:center; color:var(--text-muted); padding:1rem;';
+      row.appendChild(cell);
+      tbody.appendChild(row);
+      return;
+    }
+
+    bookings.forEach(booking => {
+      const row = document.createElement('tr');
+      const customer = document.createElement('td');
+      customer.textContent = `${booking.customerName || 'Unknown customer'} (${booking.customerPhone || 'No phone'})`;
+      const time = document.createElement('td');
+      const bookingDate = new Date(booking.bookingTime);
+      time.textContent = Number.isNaN(bookingDate.getTime()) ? '—' : bookingDate.toLocaleString();
+      const items = document.createElement('td');
+      items.textContent = (booking.items || []).map(item => `${item.name} (${item.quantity})`).join(', ') || '—';
+      const amount = document.createElement('td');
+      amount.textContent = `₹${booking.totalAmount ?? 0}`;
+      const payment = document.createElement('td');
+      payment.textContent = `${booking.paymentMethod || '—'} (${booking.paymentStatus || '—'})`;
+      const status = document.createElement('td');
+      status.innerHTML = this.getBookingStatusBadge(this.getBookingDisplayStatus(booking));
+      const actions = document.createElement('td');
+      actions.style.cssText = 'display:flex; gap:0.4rem; flex-wrap:wrap;';
+
+      if (this.getBookingDisplayStatus(booking) === 'pending') {
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'btn-sm btn-sm-danger';
+        cancelButton.dataset.bookingAction = 'cancel';
+        cancelButton.dataset.bookingId = booking.id;
+        cancelButton.textContent = 'Cancel';
+        actions.appendChild(cancelButton);
+      }
+
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'btn-sm btn-sm-danger';
+      deleteButton.dataset.bookingAction = 'delete';
+      deleteButton.dataset.bookingId = booking.id;
+      deleteButton.textContent = 'Delete';
+      actions.appendChild(deleteButton);
+
+      row.append(customer, time, items, amount, payment, status, actions);
+      tbody.appendChild(row);
+    });
   },
 
   renderTab1() {
@@ -1861,9 +1988,7 @@ const AdminState = {
       const b = this.bookings.find(booking => booking.bookingTime === item.timestamp);
       if (b) {
         const itemsList = b.items.map(i => `<li style="margin-bottom:0.25rem;">${i.name} x${i.quantity} <span style="color:var(--text-muted); font-size:0.75rem;">(₹${i.price} each)</span></li>`).join('');
-        const statusBadge = b.status === 'redeemed' 
-          ? `<span class="badge badge-success">Redeemed</span>` 
-          : (b.status === 'expired' ? `<span class="badge badge-danger">Expired</span>` : `<span class="badge badge-warning">Pending</span>`);
+        const statusBadge = this.getBookingStatusBadge(this.getBookingDisplayStatus(b));
 
         detailHTML = `
           <div style="display:flex; flex-direction:column; gap:1rem;">

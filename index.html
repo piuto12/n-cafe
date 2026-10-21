@@ -13,8 +13,12 @@
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
   <link rel="preload" href="style.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
   <noscript><link rel="stylesheet" href="style.css"></noscript>
-  <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-  <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
+  <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/fontawesome.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/solid.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/fontawesome.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/solid.min.css">
+  </noscript>
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=optional" as="style" onload="this.onload=null;this.rel='stylesheet'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=optional"></noscript>
   <script>
@@ -40,8 +44,8 @@
       --text-amber: #fbbf24;
       --danger: #ef4444;
       --success: #10b981;
-      --font-title: 'Playfair Display', serif;
-      --font-body: 'Outfit', sans-serif;
+      --font-title: 'Playfair Display', Georgia, serif;
+      --font-body: 'Outfit', Arial, sans-serif;
       --shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
       --glass-bg: rgba(18, 26, 22, 0.85);
       --glass-border: rgba(255, 255, 255, 0.06);
@@ -152,6 +156,7 @@
     main { max-width: 1200px; min-height: calc(100vh - 180px); margin: 0 auto; padding: 2rem 1.5rem; }
     .view-section { display: none; }
     .view-section.active { display: block; }
+    #view-home.active { animation: none; }
     .hero-banner {
       position: relative;
       overflow: hidden;
@@ -164,7 +169,6 @@
       background-size: cover;
       box-shadow: var(--shadow);
       text-align: center;
-      animation: float 6s ease-in-out infinite;
     }
     .hero-banner::before {
       position: absolute;
@@ -173,7 +177,7 @@
       content: '';
       pointer-events: none;
     }
-    .hero-banner h2 { margin-bottom: 0.5rem; color: #fff; font: 700 3rem var(--font-title); }
+    .hero-banner h2 { margin-bottom: 0.5rem; color: #fff; font: 700 3rem/1.2 var(--font-title); }
     .hero-banner h2 span { color: var(--accent); }
     .hero-banner p { max-width: 600px; margin: 0 auto 1.5rem; color: var(--text-muted); font-size: 1.1rem; }
     .tagline-badges { display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; }
@@ -205,15 +209,18 @@
     .search-bar { display: flex; width: 300px; align-items: center; padding: 0.5rem 1rem; border: 1px solid var(--border-dark); border-radius: 30px; background: rgba(255, 255, 255, 0.03); }
     .search-bar input { width: 100%; border: 0; outline: 0; padding-left: 0.5rem; background: transparent; color: var(--text-main); font-family: var(--font-body); }
     .food-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; margin-bottom: 3rem; }
-    .food-card { position: relative; display: flex; overflow: hidden; flex-direction: column; border: 1px solid var(--glass-border); border-radius: 20px; background: var(--glass-bg); box-shadow: var(--shadow); }
-    .food-card-skeleton {
-      min-height: 400px;
-      background: linear-gradient(110deg, var(--surface-dark) 8%, var(--surface-hover) 18%, var(--surface-dark) 33%);
-      background-size: 200% 100%;
+    .food-card { position: relative; display: flex; min-height: 400px; overflow: hidden; flex-direction: column; border: 1px solid var(--glass-border); border-radius: 20px; background: var(--glass-bg); box-shadow: var(--shadow); }
+    .food-card-skeleton { background: var(--surface-dark); }
+    .food-card-skeleton::after {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 8%, var(--surface-hover) 18%, transparent 33%);
+      content: '';
+      pointer-events: none;
+      transform: translateX(-100%);
       animation: food-skeleton-shimmer 1.5s linear infinite;
     }
-    @keyframes food-skeleton-shimmer { to { background-position-x: -200%; } }
-    @keyframes float { 0% { transform: translateY(0); } 50% { transform: translateY(-8px); } 100% { transform: translateY(0); } }
+    @keyframes food-skeleton-shimmer { to { transform: translateX(100%); } }
     .food-card-img-wrapper { position: relative; width: 100%; height: 200px; overflow: hidden; }
     .food-card img { width: 100%; height: 100%; object-fit: cover; }
     .food-card-info { display: flex; flex-grow: 1; flex-direction: column; padding: 1.25rem; }
@@ -256,7 +263,7 @@
       .hero-banner h2 { font-size: 1.8rem; line-height: 1.2; }
       .hero-banner p { margin-bottom: 1rem; font-size: 0.95rem; }
     }
-    @media (prefers-reduced-motion: reduce) { .food-card-skeleton { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .food-card-skeleton::after { animation: none; } }
   </style>
   <script src="theme.js" defer></script>
   <script src="resource-loader.js" defer></script>
@@ -524,6 +531,11 @@
             <i class="fas fa-check-circle"></i>
             <h3>ORDER REDEEMED</h3>
             <p>This ticket has been scanned and items have been issued by counter staff.</p>
+          </div>
+          <div id="ticket-overlay-cancelled" class="ticket-overlay expired" style="display: none;">
+            <i class="fas fa-ban"></i>
+            <h3>TICKET CANCELLED</h3>
+            <p>This ticket was cancelled by the cafe administrator and is no longer valid.</p>
           </div>
           <div class="ticket-header">
             <h4>N Cafe Ticket</h4>

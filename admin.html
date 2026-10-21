@@ -95,6 +95,9 @@
       <button class="admin-tab-btn" data-tab="6" id="btn-admin-tab-6">
         <i class="fas fa-history"></i> Part 6: Unified Canteen History
       </button>
+      <button class="admin-tab-btn" data-tab="7" id="btn-admin-tab-7">
+        <i class="fas fa-file-invoice"></i> Part 7: Bills
+      </button>
     </div>
 
     <!-- PART 1: Dashboard Analytics -->
@@ -852,6 +855,44 @@
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PART 7: Bills -->
+    <div class="admin-tab-content" id="admin-tab-7" style="display: none;">
+      <div class="admin-panel" style="display: flex; flex-direction: column; gap: 1rem; width: 100%;">
+        <h4 style="border-bottom: 1px solid var(--border-dark); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+          <i class="fas fa-file-invoice" style="color: var(--accent);"></i> Bills
+        </h4>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">
+          Review pending, printed/redeemed, and expired bills. Cancelling a ticket does not issue a payment refund or restore stock. Deleting a bill keeps its accounting ledger entry.
+        </p>
+        <div style="max-width: 260px;">
+          <label for="bills-status-filter" style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Show bills</label>
+          <select id="bills-status-filter" style="width: 100%; padding: 0.55rem; background: var(--bg-dark); border: 1px solid var(--border-dark); color: var(--text-main); border-radius: 6px;">
+            <option value="all">All bills</option>
+            <option value="pending">Pending</option>
+            <option value="redeemed">Printed / Redeemed</option>
+            <option value="expired">Expired</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="admin-table-wrapper" style="max-height: 650px;">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Date/Time</th>
+                <th>Items</th>
+                <th>Amount</th>
+                <th>Payment</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="bills-tbody"></tbody>
+          </table>
         </div>
       </div>
     </div>
