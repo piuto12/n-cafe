@@ -8,17 +8,258 @@
   <meta name="description" content="Order fresh, steaming masala dosas, idlis, and filter coffee from N Cafe. Fast checkout and seamless barcode redemptions.">
   <meta name="keywords" content="N Cafe, South Indian food, Masala Dosa, Filter Coffee, Canteen order, UPI payment, Barcode redemption">
   
-  <!-- FontAwesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  
-  <!-- Barcode, UPI QR, and scanner libraries -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode"></script>
-
-  <!-- Style Sheet -->
-  <link rel="stylesheet" href="style.css">
-  <script src="theme.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preload" href="style.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="style.css"></noscript>
+  <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=optional" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=optional"></noscript>
+  <script>
+    try {
+      document.documentElement.dataset.theme = localStorage.getItem('ncafe-theme') === 'light' ? 'light' : 'dark';
+    } catch {
+      document.documentElement.dataset.theme = 'dark';
+    }
+  </script>
+  <style>
+    :root {
+      --primary: #1b4d3e;
+      --primary-light: #2c6e59;
+      --primary-dark: #0f3025;
+      --accent: #d4a373;
+      --accent-hover: #c39262;
+      --bg-dark: #0b0f0d;
+      --surface-dark: #121a16;
+      --border-dark: rgba(255, 255, 255, 0.08);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-green: #34d399;
+      --text-amber: #fbbf24;
+      --danger: #ef4444;
+      --success: #10b981;
+      --font-title: 'Playfair Display', serif;
+      --font-body: 'Outfit', sans-serif;
+      --shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+      --glass-bg: rgba(18, 26, 22, 0.85);
+      --glass-border: rgba(255, 255, 255, 0.06);
+      --surface-subtle: rgba(255, 255, 255, 0.03);
+      --surface-hover: rgba(255, 255, 255, 0.06);
+      --input-bg: rgba(255, 255, 255, 0.03);
+      --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    :root[data-theme="light"] {
+      --bg-dark: #f5f7f6;
+      --surface-dark: #fff;
+      --border-dark: rgba(15, 48, 37, 0.16);
+      --text-main: #17231e;
+      --text-muted: #5d6b64;
+      --glass-bg: rgba(255, 255, 255, 0.9);
+      --glass-border: rgba(15, 48, 37, 0.12);
+      --surface-subtle: #eef3f0;
+      --surface-hover: #e4ece7;
+      --input-bg: #fff;
+      --shadow: 0 15px 35px rgba(15, 48, 37, 0.14);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    * { margin: 0; padding: 0; }
+    body {
+      overflow-x: hidden;
+      color: var(--text-main);
+      background-color: var(--bg-dark);
+      background-image:
+        radial-gradient(at 0% 0%, rgba(27, 77, 62, 0.15) 0, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(212, 163, 115, 0.08) 0, transparent 50%);
+      background-attachment: fixed;
+      font: 1rem/1.5 var(--font-body);
+    }
+    :root[data-theme="light"] body {
+      background-image:
+        radial-gradient(at 0% 0%, rgba(44, 110, 89, 0.1) 0, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(212, 163, 115, 0.12) 0, transparent 50%);
+    }
+    header {
+      position: sticky;
+      z-index: 100;
+      top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 2rem;
+      border-bottom: 1px solid var(--border-dark);
+      background: rgba(11, 15, 13, 0.85);
+      backdrop-filter: blur(12px);
+    }
+    :root[data-theme="light"] header { background: rgba(245, 247, 246, 0.88); }
+    .logo-container { display: flex; align-items: center; gap: 0.75rem; }
+    .logo-icon {
+      display: flex;
+      width: 40px;
+      height: 40px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: var(--bg-dark);
+      font: bold 1.5rem var(--font-title);
+      box-shadow: 0 4px 15px rgba(27, 77, 62, 0.4);
+    }
+    .logo-icon img { display: none; width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
+    .logo-text h1 {
+      background: linear-gradient(to right, #fff, var(--accent));
+      background-clip: text;
+      color: transparent;
+      font: 700 1.5rem var(--font-title);
+      letter-spacing: 0.5px;
+    }
+    :root[data-theme="light"] .logo-text h1 {
+      background: linear-gradient(to right, var(--primary-dark), var(--accent));
+      background-clip: text;
+    }
+    .logo-text p { color: var(--text-muted); font-size: 0.75rem; letter-spacing: 2px; text-transform: uppercase; }
+    nav, .nav-links { display: flex; align-items: center; }
+    nav { gap: 1.5rem; }
+    .nav-links { gap: 1rem; }
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-muted);
+      font: 500 0.95rem var(--font-body);
+      cursor: pointer;
+    }
+    .nav-btn.active { border-bottom: 2px solid var(--accent); border-radius: 8px 8px 0 0; }
+    .nav-btn:hover, .nav-btn.active { background: rgba(255, 255, 255, 0.05); color: var(--text-main); }
+    .theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.7rem;
+      border: 1px solid var(--border-dark);
+      border-radius: 999px;
+      background: var(--surface-dark);
+      color: var(--text-main);
+      font: 600 0.75rem var(--font-body);
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    main { max-width: 1200px; min-height: calc(100vh - 180px); margin: 0 auto; padding: 2rem 1.5rem; }
+    .view-section { display: none; }
+    .view-section.active { display: block; }
+    .hero-banner {
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 3rem;
+      padding: 4rem 3rem;
+      border: 1px solid var(--border-dark);
+      border-radius: 24px;
+      background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.75)), var(--hero-image, url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80'));
+      background-position: center;
+      background-size: cover;
+      box-shadow: var(--shadow);
+      text-align: center;
+      animation: float 6s ease-in-out infinite;
+    }
+    .hero-banner::before {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle, rgba(27, 77, 62, 0.3) 0, transparent 70%);
+      content: '';
+      pointer-events: none;
+    }
+    .hero-banner h2 { margin-bottom: 0.5rem; color: #fff; font: 700 3rem var(--font-title); }
+    .hero-banner h2 span { color: var(--accent); }
+    .hero-banner p { max-width: 600px; margin: 0 auto 1.5rem; color: var(--text-muted); font-size: 1.1rem; }
+    .tagline-badges { display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; }
+    .tagline-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 1rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 30px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-main);
+      font-size: 0.85rem;
+    }
+    .tagline-badge i { color: var(--accent); }
+    .filters-container { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+    .categories { display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.5rem; }
+    .cat-btn {
+      padding: 0.5rem 1.2rem;
+      border: 1px solid var(--border-dark);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-muted);
+      font: 500 1rem var(--font-body);
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .cat-btn.active, .cat-btn:hover { border-color: var(--primary-light); background: var(--primary); color: var(--text-main); }
+    .search-bar { display: flex; width: 300px; align-items: center; padding: 0.5rem 1rem; border: 1px solid var(--border-dark); border-radius: 30px; background: rgba(255, 255, 255, 0.03); }
+    .search-bar input { width: 100%; border: 0; outline: 0; padding-left: 0.5rem; background: transparent; color: var(--text-main); font-family: var(--font-body); }
+    .food-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; margin-bottom: 3rem; }
+    .food-card { position: relative; display: flex; overflow: hidden; flex-direction: column; border: 1px solid var(--glass-border); border-radius: 20px; background: var(--glass-bg); box-shadow: var(--shadow); }
+    .food-card-skeleton {
+      min-height: 400px;
+      background: linear-gradient(110deg, var(--surface-dark) 8%, var(--surface-hover) 18%, var(--surface-dark) 33%);
+      background-size: 200% 100%;
+      animation: food-skeleton-shimmer 1.5s linear infinite;
+    }
+    @keyframes food-skeleton-shimmer { to { background-position-x: -200%; } }
+    @keyframes float { 0% { transform: translateY(0); } 50% { transform: translateY(-8px); } 100% { transform: translateY(0); } }
+    .food-card-img-wrapper { position: relative; width: 100%; height: 200px; overflow: hidden; }
+    .food-card img { width: 100%; height: 100%; object-fit: cover; }
+    .food-card-info { display: flex; flex-grow: 1; flex-direction: column; padding: 1.25rem; }
+    .food-card-title-row { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.5rem; }
+    .food-card-title-row h3 { max-width: 75%; color: var(--text-main); font-size: 1.15rem; font-weight: 600; }
+    .food-card-price { color: var(--accent); font-size: 1.2rem; font-weight: 700; }
+    .cart-icon-btn {
+      position: fixed;
+      z-index: 998;
+      right: 1.5rem;
+      bottom: 1.5rem;
+      display: flex;
+      width: 60px;
+      height: 60px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--glass-border);
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--primary), var(--primary-light));
+      color: #fff;
+      font-size: 1.25rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      cursor: pointer;
+    }
+    .cart-icon-btn[hidden] { display: none; }
+    .cart-badge { position: absolute; top: -5px; right: -5px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--bg-dark); font-size: 0.75rem; font-weight: bold; text-align: center; }
+    @media (max-width: 768px) {
+      header { gap: 0.75rem; padding: 0.75rem 1rem; flex-wrap: wrap; }
+      .logo-container { gap: 0.5rem; }
+      .logo-text p { display: none; }
+      .logo-text h1 { font-size: 1.3rem; }
+      .nav-links { gap: 0.5rem; }
+      .nav-btn { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+      main { padding: 1.5rem 0.75rem; }
+      .filters-container { align-items: stretch; gap: 0.75rem; margin-bottom: 1.5rem; flex-direction: column; }
+      .categories { width: 100%; gap: 0.4rem; padding-bottom: 0.4rem; white-space: nowrap; }
+      .cat-btn { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+      .search-bar { width: 100%; padding: 0.4rem 0.8rem; font-size: 0.85rem; }
+      .hero-banner { margin-bottom: 1.5rem; padding: 2rem 1.25rem; border-radius: 16px; }
+      .hero-banner h2 { font-size: 1.8rem; line-height: 1.2; }
+      .hero-banner p { margin-bottom: 1rem; font-size: 0.95rem; }
+    }
+    @media (prefers-reduced-motion: reduce) { .food-card-skeleton { animation: none; } }
+  </style>
+  <script src="theme.js" defer></script>
+  <script src="resource-loader.js" defer></script>
 </head>
 <body>
 
@@ -112,13 +353,16 @@
             </div>
           </div>
           <div class="special-offer-image-container">
-            <img id="cust-offer-img" src="assets/south_indian_meals.png" alt="Special Combo Banner" onerror="this.src='assets/south_indian_meals.png';">
+            <img id="cust-offer-img" src="assets/south_indian_meals.png" alt="Special Combo Banner" loading="lazy" decoding="async" onerror="this.src='assets/south_indian_meals.png';">
           </div>
         </div>
 
         <!-- Food Grid -->
-        <div class="food-grid" id="food-menu-grid">
-          <!-- Food items populated by JS -->
+        <div class="food-grid" id="food-menu-grid" aria-busy="true">
+          <div class="food-card food-card-skeleton" aria-hidden="true"></div>
+          <div class="food-card food-card-skeleton" aria-hidden="true"></div>
+          <div class="food-card food-card-skeleton" aria-hidden="true"></div>
+          <div class="food-card food-card-skeleton" aria-hidden="true"></div>
         </div>
       </section>
 
@@ -487,9 +731,7 @@
     </div>
   </div>
 
-  <!-- Google OAuth Client Library (Identity Services) -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <!-- App Logic Script -->
-  <script src="customer.js"></script>
+  <script src="customer.js" defer></script>
 </body>
 </html>

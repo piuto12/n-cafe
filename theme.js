@@ -2,6 +2,15 @@
   const storageKey = 'ncafe-theme';
   const root = document.documentElement;
 
+  function getSavedTheme() {
+    try {
+      return localStorage.getItem(storageKey) || 'dark';
+    } catch (error) {
+      console.warn('Unable to read the saved theme preference:', error);
+      return 'dark';
+    }
+  }
+
   function applyTheme(theme) {
     const nextTheme = theme === 'light' ? 'light' : 'dark';
     root.dataset.theme = nextTheme;
@@ -15,16 +24,17 @@
     });
   }
 
-  applyTheme(localStorage.getItem(storageKey) || 'dark');
+  applyTheme(getSavedTheme());
 
-  document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const nextTheme = root.dataset.theme === 'light' ? 'dark' : 'light';
+  document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextTheme = root.dataset.theme === 'light' ? 'dark' : 'light';
+      applyTheme(nextTheme);
+      try {
         localStorage.setItem(storageKey, nextTheme);
-        applyTheme(nextTheme);
-      });
+      } catch (error) {
+        console.warn('Unable to save the theme preference:', error);
+      }
     });
-    applyTheme(root.dataset.theme);
   });
 })();

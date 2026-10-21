@@ -13,12 +13,14 @@ const CanteenState = {
   },
   currentLockId: null,
   ticketTimerInterval: null,
+  catalogRequest: null,
+  catalogLoaded: false,
+  catalogFetchedAt: 0,
+  specialOfferRequest: null,
+  specialOfferLoaded: false,
 
   async init() {
     this.loadCart();
-    await this.fetchSettings();
-    await this.fetchFoodCatalog();
-    this.loadRazorpayScript();
 
     // Bind click on Special Offer buy button
     const buyBtn = document.getElementById('btn-cust-offer-buy');
@@ -29,16 +31,16 @@ const CanteenState = {
       });
     }
 
-    renderFoodMenu('all');
     updateCartBadges();
+    await Promise.all([
+      this.fetchSettings(),
+      this.fetchFoodCatalog(),
+      this.loadSpecialOffer()
+    ]);
   },
 
   loadRazorpayScript() {
-    if (document.querySelector('script[src*="checkout.razorpay.com"]')) return;
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.async = true;
-    document.head.appendChild(script);
+    return loadExternalScript('https://checkout.razorpay.com/v1/checkout.js');
   },
 
   loadCart() {
@@ -80,17 +82,95 @@ const CanteenState = {
     }
   },
 
-  async fetchFoodCatalog() {
-    try {
-      const res = await fetch('/api/food-items');
-      if (res.ok) {
-        this.foodItems = await res.json();
-        await this.loadSpecialOffer();
-        this.syncCartWithCatalog();
-      }
-    } catch (e) {
-      console.error("Failed to load catalog from API:", e);
+  async fetchFoodCatalog({ force = false } = {}) {
+    if (this.catalogRequest) return this.catalogRequest;
+    if (!force && this.catalogLoaded && Date.now() - this.catalogFetchedAt < 30000) {
+      return;
     }
+
+    this.catalogRequest = (async () => {
+      try {
+        const res = await fetch('/api/food-items');
+        if (!res.ok) throw new Error(`Catalog request failed (${res.status}).`);
+        this.foodItems = await res.json();
+        this.catalogLoaded = true;
+        this.catalogFetchedAt = Date.now();
+        if (this.specialOfferLoaded) {
+          this.applySpecialOfferToCatalog();
+          this.syncCartWithCatalog();
+        }
+        this.renderCurrentMenu();
+      } catch (e) {
+        console.error("Failed to load catalog from API:", e);
+        if (!this.catalogLoaded) {
+          const menuGrid = document.getElementById('food-menu-grid');
+          if (menuGrid) {
+            menuGrid.setAttribute('aria-busy', 'false');
+            menuGrid.innerHTML = '<p class="catalog-load-error" role="status">The menu could not be loaded. Please try again later.</p>';
+          }
+        }
+      } finally {
+        this.catalogRequest = null;
+      }
+    })();
+    return this.catalogRequest;
+  },
+
+  renderCurrentMenu() {
+    const activeCategory = document.querySelector('.cat-btn.active');
+    const searchInput = document.getElementById('search-food');
+    renderFoodMenu(activeCategory ? activeCategory.dataset.category : 'all', searchInput ? searchInput.value : '');
+  },
+
+  applySpecialOfferToCatalog() {
+    const banner = document.getElementById('customer-special-offer-banner');
+    const offer = this.specialOffer;
+    this.foodItems = this.foodItems.filter(food => food.id !== 'FD-SPECIAL');
+
+    if (offer && offer.active) {
+      document.getElementById('cust-offer-title').textContent = offer.title || '';
+      document.getElementById('cust-offer-desc').textContent = offer.desc || '';
+      document.getElementById('cust-offer-price').textContent = `₹${offer.price}`;
+
+      const image = document.getElementById('cust-offer-img');
+      if (image) image.src = offer.image || 'assets/south_indian_meals.png';
+      if (banner) banner.style.display = 'grid';
+
+      this.foodItems.push({
+        id: 'FD-SPECIAL',
+        name: offer.title || 'Special Offer Combo',
+        price: Number(offer.price) || 0,
+        image: offer.image || 'assets/south_indian_meals.png',
+        details: offer.desc || '',
+        category: 'Snacks',
+        isveg: 'Veg',
+        availableStock: 9999
+      });
+    } else if (banner) {
+      banner.style.display = 'none';
+    }
+  },
+
+  async loadSpecialOffer() {
+    if (this.specialOfferRequest) return this.specialOfferRequest;
+
+    this.specialOfferRequest = (async () => {
+      try {
+        const res = await fetch('/api/special-offer');
+        if (res.ok) this.specialOffer = await res.json();
+      } catch (e) {
+        console.warn("Failed to load special offer settings:", e);
+      } finally {
+        this.specialOfferLoaded = true;
+        if (this.catalogLoaded) {
+          this.applySpecialOfferToCatalog();
+          this.syncCartWithCatalog();
+          this.renderCurrentMenu();
+        }
+        this.specialOfferRequest = null;
+      }
+    })();
+    return this.specialOfferRequest;
   },
 
   syncCartWithCatalog() {
@@ -117,49 +197,6 @@ const CanteenState = {
     const changed = JSON.stringify(syncedCart) !== JSON.stringify(this.cart);
     this.cart = syncedCart;
     if (changed) this.saveCart();
-  },
-
-  async loadSpecialOffer() {
-    try {
-      const res = await fetch('/api/special-offer');
-      if (res.ok) {
-        const offer = await res.json();
-        this.specialOffer = offer;
-        const banner = document.getElementById('customer-special-offer-banner');
-        if (banner) {
-          if (offer && offer.active) {
-            document.getElementById('cust-offer-title').textContent = offer.title || '';
-            document.getElementById('cust-offer-desc').textContent = offer.desc || '';
-            document.getElementById('cust-offer-price').textContent = `₹${offer.price}`;
-            
-            const img = document.getElementById('cust-offer-img');
-            if (img) {
-              img.src = offer.image || 'assets/south_indian_meals.png';
-            }
-            
-            banner.style.display = 'grid';
-            
-            const virtualItem = {
-              id: 'FD-SPECIAL',
-              name: offer.title || 'Special Offer Combo',
-              price: Number(offer.price) || 0,
-              image: offer.image || 'assets/south_indian_meals.png',
-              details: offer.desc || '',
-              category: 'Snacks',
-              isveg: 'Veg',
-              availableStock: 9999
-            };
-            this.foodItems = this.foodItems.filter(f => f.id !== 'FD-SPECIAL');
-            this.foodItems.push(virtualItem);
-          } else {
-            banner.style.display = 'none';
-            this.foodItems = this.foodItems.filter(f => f.id !== 'FD-SPECIAL');
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to load special offer settings:", e);
-    }
   }
 };
 
@@ -194,11 +231,7 @@ const AppRouter = {
     if (view === 'ticket') {
       renderTicketPage();
     } else if (view === 'home') {
-      CanteenState.fetchFoodCatalog().then(() => {
-        const activeCat = document.querySelector('.cat-btn.active');
-        const searchVal = document.getElementById('search-food').value;
-        renderFoodMenu(activeCat ? activeCat.dataset.category : 'all', searchVal);
-      });
+      CanteenState.fetchFoodCatalog().then(() => CanteenState.renderCurrentMenu());
     }
   },
 
@@ -219,6 +252,7 @@ const AppRouter = {
 function renderFoodMenu(filterCategory = 'all', searchQuery = '') {
   const menuGrid = document.getElementById('food-menu-grid');
   if (!menuGrid) return;
+  menuGrid.setAttribute('aria-busy', 'false');
   menuGrid.innerHTML = '';
 
   // Filter out the special offer combo so it doesn't render in main list
@@ -258,7 +292,7 @@ function renderFoodMenu(filterCategory = 'all', searchQuery = '') {
     card.dataset.foodId = f.id;
     card.innerHTML = `
       <div class="food-card-img-wrapper">
-        <img src="${f.image}" alt="${f.name}" onerror="this.src='https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=500'">
+        <img src="${f.image}" alt="${f.name}" loading="lazy" decoding="async" onerror="this.src='https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=500'">
         <span class="food-card-tag ${tagClass}"><i class="fas ${vegIcon}"></i></span>
         ${isOutOfStock ? '<div class="stock-overlay-label">SOLD OUT</div>' : ''}
       </div>
@@ -554,7 +588,7 @@ document.getElementById('checkout-form').addEventListener('submit', async (e) =>
   }
 
   // 1. Double check stock dynamically from server catalog
-  await CanteenState.fetchFoodCatalog();
+  await CanteenState.fetchFoodCatalog({ force: true });
   let stockIssues = [];
   CanteenState.cart.forEach(cItem => {
     const food = CanteenState.foodItems.find(f => f.id === cItem.id);
@@ -589,7 +623,12 @@ document.getElementById('checkout-form').addEventListener('submit', async (e) =>
         .then(async configRes => {
           if (configRes.ok) {
             const config = await configRes.json();
-            if (config.enabled && typeof Razorpay !== 'undefined') {
+            if (config.enabled) {
+              await CanteenState.loadRazorpayScript();
+              if (typeof Razorpay === 'undefined') {
+                throw new Error('Razorpay checkout script loaded without initializing.');
+              }
+
               // Construct booking payload
               const subtotalText = document.getElementById('checkout-subtotal').innerText.replace('₹', '');
               const subtotal = parseFloat(subtotalText);
@@ -632,9 +671,9 @@ document.getElementById('checkout-form').addEventListener('submit', async (e) =>
           alert('Online payment is not configured. Please contact the cafe administrator.');
         })
         .catch(err => {
-          console.warn("Payments configuration could not be loaded:", err);
+          console.warn("Payments configuration or checkout could not be loaded:", err);
           cancelPaymentGateway(false).then(() => {
-            alert('Unable to load online payment configuration. Please try again later.');
+            alert('Unable to load online payment checkout. Please try again later.');
           });
         });
     } else {
@@ -707,7 +746,7 @@ window.addEventListener('pagehide', () => {
 
 // --- UPI PAYMENT GATEWAY INTERACTIVE INTERFACE ---
 let selectedGatewayTab = 'qr';
-function initPaymentGatewaySandbox() {
+async function initPaymentGatewaySandbox() {
   const amountVal = parseFloat(document.getElementById('checkout-total').innerText.replace('₹', ''));
   const name = document.getElementById('cust-name').value.trim();
   
@@ -723,6 +762,7 @@ function initPaymentGatewaySandbox() {
   // Render QR Canvas
   const qrCanvas = document.getElementById('npay-qr-canvas');
   if (qrCanvas) {
+    await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js');
     new QRious({
       element: qrCanvas,
       value: upiLink,
@@ -994,32 +1034,15 @@ function renderTicketPage() {
   CanteenState.ticketTimerInterval = setInterval(tick, 1000); // Check status every 1 second
 }
 
-function renderTicketBarcode(booking) {
+async function renderTicketBarcode(booking) {
   const canvas = document.getElementById('ticket-barcode-canvas');
   if (!canvas) return;
-  
-  // Keep the payload self-contained so the scanner can recover tickets offline.
-  const data = {
-    id: booking.id,
-    cName: booking.customerName,
-    cPhone: booking.customerPhone,
-    pk: booking.passkey,
-    items: booking.items.map(i => ({
-      fid: i.foodItemId,
-      name: i.name,
-      qty: i.quantity,
-      price: i.price
-    })),
-    total: booking.totalAmount,
-    pMethod: booking.paymentMethod,
-    bTime: booking.bookingTime,
-    eTime: booking.expiryTime,
-    status: booking.status
-  };
 
   const barcodeValue = booking.id;
 
   try {
+    await loadExternalScript('https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js');
+    if (!canvas.isConnected || AppRouter.currentTab !== 'ticket') return;
     JsBarcode(canvas, barcodeValue, {
       format: 'CODE128',
       lineColor: '#1b4d3e',

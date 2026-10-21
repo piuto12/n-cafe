@@ -154,11 +154,15 @@ const ScannerState = {
     });
   },
 
-  startScannerCamera() {
+  async startScannerCamera() {
     const barcodeReader = document.getElementById('barcode-reader');
     if (!barcodeReader) return;
 
     try {
+      await loadExternalScript('https://unpkg.com/html5-qrcode');
+      if (typeof Html5Qrcode === 'undefined') {
+        throw new Error('HTML5 QR Code scanner script loaded without initializing.');
+      }
       this.html5QrCode = new Html5Qrcode("barcode-reader");
       const config = {
         fps: 15,

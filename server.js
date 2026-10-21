@@ -47,6 +47,7 @@ const rateBuckets = new Map();
 const paymentIntents = new Map();
 
 app.disable('x-powered-by');
+if (isHostedProduction) app.set('trust proxy', 1);
 app.use(helmet({
   contentSecurityPolicy: false
 }));
@@ -94,6 +95,7 @@ app.use((req, res, next) => {
     '/customer.js',
     '/admin.js',
     '/scanner.js',
+    '/resource-loader.js',
     '/theme.js',
     '/style.css'
   ]);
@@ -641,8 +643,12 @@ async function initializeMongoDatabase() {
       { upsert: true }
     )
   ));
-  await ingredients.createIndex({ id: 1 }, { unique: true });
-  await foodItems.createIndex({ id: 1 }, { unique: true });
+  await Promise.all([
+    ingredients.createIndex({ id: 1 }, { unique: true }),
+    foodItems.createIndex({ id: 1 }, { unique: true }),
+    foodItems.createIndex({ listed: 1, stock: 1 }),
+    db.mongoCollection('locks').createIndex({ expiryTime: 1, foodItemId: 1 })
+  ]);
   console.log('MongoDB collections initialized.');
 }
 
@@ -717,6 +723,7 @@ function initializeDatabase() {
       expiryTime BIGINT NOT NULL,
       PRIMARY KEY (id, foodItemId)
     )`);
+    db.run("CREATE INDEX IF NOT EXISTS locks_expiry_food_idx ON locks (expiryTime, foodItemId)");
 
     // 6. Settings Table
     db.run(`CREATE TABLE IF NOT EXISTS settings (
@@ -1134,30 +1141,46 @@ app.post('/api/special-offer', authenticateToken(['admin']), (req, res) => {
 
 // Get Food Catalog (Takes temporary locks into account)
 app.get('/api/food-items', (req, res) => {
-  db.all("SELECT * FROM food_items WHERE listed = 1 AND stock > 0", (err, foods) => {
-    if (err) return res.status(500).json({ error: err.message });
-
-    const now = Date.now();
-    db.all("SELECT foodItemId, SUM(quantity) as lockedQty FROM locks WHERE expiryTime > ? GROUP BY foodItemId", [now], (err, locked) => {
-      if (err) return res.status(500).json({ error: err.message });
-
-      const lockMap = {};
-      locked.forEach(l => {
-        lockMap[l.foodItemId] = l.lockedQty;
-      });
-
-      const processed = foods.map(f => {
-        const lockedVal = lockMap[f.id] || 0;
-        return {
-          ...f,
-          offerPrice: f.offer_price,
-          availableStock: Math.max(0, f.stock - lockedVal)
-        };
-      });
-
-      res.json(processed);
+  const now = Date.now();
+  const completeCatalog = (foods, locked) => {
+    const lockMap = {};
+    locked.forEach((lock) => {
+      lockMap[lock.foodItemId || lock._id] = lock.lockedQty;
     });
+
+    res.json(foods.map((food) => ({
+      ...food,
+      offerPrice: food.offer_price,
+      availableStock: Math.max(0, food.stock - (lockMap[food.id] || 0))
+    })));
+  };
+
+  if (db.isMongo) {
+    Promise.all([
+      db.mongoCollection('food_items')
+        .find({ listed: 1, stock: { $gt: 0 } })
+        .toArray(),
+      db.mongoCollection('locks')
+        .aggregate([
+          { $match: { expiryTime: { $gt: now } } },
+          { $group: { _id: '$foodItemId', lockedQty: { $sum: '$quantity' } } }
+        ])
+        .toArray()
+    ])
+      .then(([foods, locks]) => completeCatalog(foods.map((food) => db.normalizeRow(food)), locks))
+      .catch((err) => res.status(500).json({ error: err.message }));
+    return;
+  }
+
+  const queryAll = (sql, params = []) => new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
   });
+  Promise.all([
+    queryAll("SELECT * FROM food_items WHERE listed = 1 AND stock > 0"),
+    queryAll("SELECT foodItemId, SUM(quantity) as lockedQty FROM locks WHERE expiryTime > ? GROUP BY foodItemId", [now])
+  ])
+    .then(([foods, locks]) => completeCatalog(foods, locks))
+    .catch((err) => res.status(500).json({ error: err.message }));
 });
 
 // Get the complete food catalog for the admin inventory view.

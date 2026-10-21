@@ -379,7 +379,7 @@ const AdminState = {
     });
 
     // Modal Button - UPI QR Selector
-    document.getElementById('btn-pos-pay-upi').addEventListener('click', () => {
+    document.getElementById('btn-pos-pay-upi').addEventListener('click', async () => {
       if (!this.posBillingData) return;
       
       const payeeName = this.accountDetails.name || 'N Cafe';
@@ -395,6 +395,13 @@ const AdminState = {
       // Render UPI QR canvas
       const canvas = document.getElementById('pos-upi-qr-canvas');
       if (canvas) {
+        try {
+          await loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js');
+        } catch (error) {
+          console.error('Failed to load the UPI QR generator:', error);
+          alert('The UPI QR code could not be loaded. Please try again.');
+          return;
+        }
         new QRious({
           element: canvas,
           value: upiLink,
@@ -1843,7 +1850,7 @@ const AdminState = {
     });
   },
 
-  showEventAuditDetails(item) {
+  async showEventAuditDetails(item) {
     const panel = document.getElementById('history-audit-panel');
     if (!panel) return;
 
@@ -1968,15 +1975,23 @@ const AdminState = {
       if (b) {
         const canvas = document.getElementById('history-barcode-canvas');
         if (canvas) {
-          JsBarcode(canvas, b.id, {
-            format: 'CODE128',
-            lineColor: '#1b4d3e',
-            background: '#ffffff',
-            width: 1,
-            height: 76,
-            displayValue: false,
-            margin: 8
-          });
+          try {
+            await loadExternalScript('https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js');
+            if (canvas.isConnected) {
+              JsBarcode(canvas, b.id, {
+                format: 'CODE128',
+                lineColor: '#1b4d3e',
+                background: '#ffffff',
+                width: 1,
+                height: 76,
+                displayValue: false,
+                margin: 8
+              });
+            }
+          } catch (error) {
+            console.error('Failed to load the ticket barcode generator:', error);
+            canvas.insertAdjacentText('afterend', 'Ticket barcode could not be loaded.');
+          }
         }
 
         const btnReceipt = document.getElementById('btn-hist-download-receipt');

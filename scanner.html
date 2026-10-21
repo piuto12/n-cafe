@@ -5,15 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>N Cafe - Operator Scanner</title>
   
-  <!-- FontAwesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  
-  <!-- HTML5-QRCode Library -->
-  <script src="https://unpkg.com/html5-qrcode"></script>
-  
-  <!-- Style Sheet -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preload" href="style.css" as="style">
   <link rel="stylesheet" href="style.css">
-  <script src="theme.js"></script>
+  <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=optional" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=optional"></noscript>
+  <script>
+    try {
+      document.documentElement.dataset.theme = localStorage.getItem('ncafe-theme') === 'light' ? 'light' : 'dark';
+    } catch {
+      document.documentElement.dataset.theme = 'dark';
+    }
+  </script>
+  <script src="theme.js" defer></script>
+  <script src="resource-loader.js" defer></script>
 </head>
 <body style="background: var(--bg-dark); color: var(--text-main);">
 
@@ -190,6 +199,6 @@
   </div>
 
   <!-- Scanner Controller -->
-  <script src="scanner.js"></script>
+  <script src="scanner.js" defer></script>
 </body>
 </html>
