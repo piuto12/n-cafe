@@ -252,6 +252,7 @@ function renderFoodMenu(filterCategory = 'all', searchQuery = '') {
 
     const card = document.createElement('div');
     card.className = `food-card ${isOutOfStock ? 'out-of-stock' : ''}`;
+    card.dataset.foodId = f.id;
     card.innerHTML = `
       <div class="food-card-img-wrapper">
         <img src="${f.image}" alt="${f.name}" onerror="this.src='https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=500'">
@@ -294,21 +295,86 @@ function addToCart(foodId) {
   const food = CanteenState.foodItems.find(f => f.id === foodId);
   if (!food) return;
 
+  const sourceImage = Array.from(document.querySelectorAll('.food-card'))
+    .find(card => card.dataset.foodId === foodId)?.querySelector('img');
+  const sourceRect = sourceImage ? sourceImage.getBoundingClientRect() : null;
+  const sourceImageUrl = sourceImage ? (sourceImage.currentSrc || sourceImage.src) : null;
   const cartItem = CanteenState.cart.find(c => c.id === foodId);
+  let added = false;
   if (cartItem) {
     if (cartItem.quantity < food.availableStock) {
       cartItem.quantity++;
+      added = true;
     } else {
       alert(`Limit exceeded. Only ${food.availableStock} portions available in stock.`);
     }
   } else {
     CanteenState.cart.push({ id: foodId, quantity: 1 });
+    added = true;
   }
 
   CanteenState.saveCart();
   const activeCat = document.querySelector('.cat-btn.active');
   const searchVal = document.getElementById('search-food').value;
   renderFoodMenu(activeCat ? activeCat.dataset.category : 'all', searchVal);
+  if (added) animateCartAdd(sourceRect, sourceImageUrl);
+}
+
+function animateCartAdd(sourceRect, sourceImageUrl) {
+  const cartButton = document.getElementById('cart-toggle-btn');
+  if (!cartButton) return;
+
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduceMotion) {
+    cartButton.classList.remove('is-bumping');
+    void cartButton.offsetWidth;
+    cartButton.classList.add('is-bumping');
+    cartButton.addEventListener('animationend', () => {
+      cartButton.classList.remove('is-bumping');
+    }, { once: true });
+  }
+
+  if (!sourceRect || !sourceImageUrl || reduceMotion) return;
+
+  const cartRect = cartButton.getBoundingClientRect();
+  const flyingImage = document.createElement('img');
+  flyingImage.src = sourceImageUrl;
+  flyingImage.alt = '';
+  flyingImage.setAttribute('aria-hidden', 'true');
+  Object.assign(flyingImage.style, {
+    position: 'fixed',
+    left: `${sourceRect.left + sourceRect.width / 2}px`,
+    top: `${sourceRect.top + sourceRect.height / 2}px`,
+    width: `${sourceRect.width}px`,
+    height: `${sourceRect.height}px`,
+    objectFit: 'cover',
+    borderRadius: '12px',
+    pointerEvents: 'none',
+    zIndex: '1200',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)'
+  });
+  document.body.appendChild(flyingImage);
+
+  const animation = flyingImage.animate([
+    {
+      left: `${sourceRect.left + sourceRect.width / 2}px`,
+      top: `${sourceRect.top + sourceRect.height / 2}px`,
+      transform: 'translate(-50%, -50%) scale(1)',
+      opacity: 1
+    },
+    {
+      left: `${cartRect.left + cartRect.width / 2}px`,
+      top: `${cartRect.top + cartRect.height / 2}px`,
+      transform: 'translate(-50%, -50%) scale(0.15)',
+      opacity: 0.2
+    }
+  ], {
+    duration: 650,
+    easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    fill: 'forwards'
+  });
+  animation.onfinish = () => flyingImage.remove();
+  animation.oncancel = () => flyingImage.remove();
 }
 
 function adjustCartQty(foodId, amount) {

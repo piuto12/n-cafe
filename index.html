@@ -41,10 +41,6 @@
         <button class="nav-btn" onclick="AppRouter.openTicketRetrievalGate()" id="btn-nav-retrieve">
           <i class="fas fa-ticket-alt"></i> My Bills
         </button>
-        <button class="cart-icon-btn" id="cart-toggle-btn" onclick="toggleCartDrawer(true)">
-          <i class="fas fa-shopping-basket"></i>
-          <span class="cart-badge" id="nav-cart-badge" style="display: none;">0</span>
-        </button>
         <button class="theme-toggle" type="button" data-theme-toggle></button>
       </div>
       
@@ -60,6 +56,10 @@
     
     <!-- ==================== CUSTOMER ROLE SECTION ==================== -->
     <div id="customer-section" class="role-section">
+      <button class="cart-icon-btn" id="cart-toggle-btn" onclick="toggleCartDrawer(true)" aria-label="Open shopping cart">
+        <i class="fas fa-shopping-basket"></i>
+        <span class="cart-badge" id="nav-cart-badge" style="display: none;" aria-live="polite">0</span>
+      </button>
       
       <!-- Sub-Navigation Category Filter Panel (Only visible on customer view) -->
       <div id="customer-sub-nav" class="customer-view active" style="display: block;">
