@@ -347,6 +347,10 @@ nav {
   transition: var(--transition);
 }
 
+.cart-icon-btn[hidden] {
+  display: none;
+}
+
 .cart-icon-btn:hover {
   background: linear-gradient(135deg, var(--primary-light), var(--primary));
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);

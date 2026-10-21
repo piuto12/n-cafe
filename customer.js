@@ -168,6 +168,9 @@ const AppRouter = {
 
   navigateTo(view) {
     this.currentTab = view;
+    const cartButton = document.getElementById('cart-toggle-btn');
+    if (cartButton) cartButton.hidden = view !== 'home';
+
     document.querySelectorAll('.nav-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.view === view);
     });
@@ -932,11 +935,6 @@ function renderTicketPage() {
   renderTicketBarcode(b);
   document.getElementById('barcode-num-text').innerText = b.id;
 
-  const downloadBtn = document.getElementById('btn-download-ticket');
-  if (downloadBtn) {
-    downloadBtn.onclick = () => downloadReceipt(b);
-  }
-
   // Clear existing timer
   if (CanteenState.ticketTimerInterval) clearInterval(CanteenState.ticketTimerInterval);
 
@@ -1034,35 +1032,6 @@ function renderTicketBarcode(booking) {
   } catch (e) {
     console.error("Failed to render ticket barcode:", e);
   }
-}
-
-function downloadReceipt(b) {
-  let content = `N CAFE HILLS KITCHEN BILL\n`;
-  content += `========================================\n`;
-  content += `Ticket ID:    ${b.id}\n`;
-  content += `Cust Name:    ${b.customerName}\n`;
-  content += `Phone:        ${b.customerPhone}\n`;
-  content += `Order Time:   ${new Date(b.bookingTime).toLocaleString()}\n`;
-  content += `========================================\n`;
-  b.items.forEach(i => {
-    content += `${i.name.padEnd(25)} x${i.quantity}  ₹${i.price * i.quantity}\n`;
-  });
-  content += `----------------------------------------\n`;
-  const tax = 0;
-  const sub = b.totalAmount;
-  content += `Subtotal:                      ₹${sub}\n`;
-  content += `Total Paid:                    ₹${b.totalAmount}\n`;
-  content += `========================================\n`;
-  content += `Prepaid order (UPI)\n`;
-  content += `Show this ticket at counter to redeem.\n`;
-
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `n_cafe_bill_${b.id.substring(3, 11)}.txt`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
 }
 
 // --- TICKET RETRIEVAL FINDER ---
