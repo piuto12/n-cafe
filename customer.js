@@ -1152,7 +1152,6 @@ async function processRazorpayCheckout(bookingData, keyId) {
           };
 
           AppRouter.navigateTo('ticket');
-          alert("Order payment successful! Verification ticket created.");
         } else {
           const errData = await verifyRes.json();
           alert(`Verification failed: ${errData.error || 'Unconfirmed transaction'}`);
