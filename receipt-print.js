@@ -56,34 +56,30 @@
     const commands = [];
     let y = PADDING;
     const regularFont = '12px Arial, Helvetica, sans-serif';
-    const boldFont = 'bold 12px Arial, Helvetica, sans-serif';
-    const smallFont = '11px Arial, Helvetica, sans-serif';
     const lineHeight = 15;
 
-    y = addWrappedText(commands, measureContext, 'N CAFE', PADDING, y, INK_WIDTH, 'bold 17px Arial, Helvetica, sans-serif', 21, 'center');
-    y = addWrappedText(commands, measureContext, 'RECEIPT', PADDING, y, INK_WIDTH, boldFont, lineHeight, 'center');
-    y += 3;
-    commands.push({ type: 'rule', y });
-    y += 6;
-
-    [
-      `Receipt: ${booking.id || '—'}`,
-      `Customer: ${booking.customerName || '—'}`,
-      `Phone: ${booking.customerPhone || '—'}`,
-      `Date: ${booking.bookingTime ? new Date(booking.bookingTime).toLocaleString() : '—'}`,
-      `Payment: ${booking.paymentMethod || '—'}`
-    ].forEach(line => {
-      y = addWrappedText(commands, measureContext, line, PADDING, y, INK_WIDTH, regularFont, lineHeight);
-    });
-
-    y += 3;
+    y = addWrappedText(commands, measureContext, 'N Cafe', PADDING, y, INK_WIDTH, 'bold 17px Arial, Helvetica, sans-serif', 21, 'center');
+    y += 2;
+    y = addWrappedText(
+      commands,
+      measureContext,
+      booking.bookingTime ? new Date(booking.bookingTime).toLocaleString() : '—',
+      PADDING,
+      y,
+      INK_WIDTH,
+      regularFont,
+      lineHeight,
+      'center'
+    );
+    y += 4;
     commands.push({ type: 'rule', y });
     y += 6;
 
     booking.items.forEach(item => {
       const quantity = Number(item.quantity) || 0;
-      const amount = `₹${(Number(item.price) || 0) * quantity}`;
-      const nameAndQuantity = `${item.name || 'Item'} x${quantity}`;
+      const unitPrice = Number(item.price) || 0;
+      const amount = `₹${unitPrice * quantity}`;
+      const nameAndQuantity = `${item.name || 'Item'} x${quantity} @ ₹${unitPrice}`;
       measureContext.font = regularFont;
       const amountWidth = measureContext.measureText(amount).width;
       const nameWidth = INK_WIDTH - amountWidth - 8;
@@ -104,15 +100,13 @@
     y = addWrappedText(
       commands,
       measureContext,
-      `TOTAL PAID: ₹${Number(booking.totalAmount) || 0}`,
+      `TOTAL: ₹${Number(booking.totalAmount) || 0}`,
       PADDING,
       y,
       INK_WIDTH,
       'bold 14px Arial, Helvetica, sans-serif',
       18
     );
-    y += 3;
-    y = addWrappedText(commands, measureContext, 'Thank you for ordering at N Cafe!', PADDING, y, INK_WIDTH, smallFont, 14, 'center');
 
     const canvas = document.createElement('canvas');
     canvas.width = WIDTH * SCALE;
