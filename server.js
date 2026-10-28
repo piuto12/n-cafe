@@ -95,6 +95,7 @@ app.use((req, res, next) => {
     '/customer.js',
     '/admin.js',
     '/scanner.js',
+    '/receipt-print.js',
     '/resource-loader.js',
     '/theme.js',
     '/style.css'
