@@ -653,6 +653,14 @@ async function initializeMongoDatabase() {
     ingredients.createIndex({ id: 1 }, { unique: true }),
     foodItems.createIndex({ id: 1 }, { unique: true }),
     foodItems.createIndex({ listed: 1, stock: 1 }),
+    db.mongoCollection('bookings').createIndex(
+      { customerName: 1, bookingTime: -1 },
+      { name: 'bookings_customer_name_ci_time', collation: { locale: 'en', strength: 2 } }
+    ),
+    db.mongoCollection('bookings').createIndex(
+      { customerPhone: 1, bookingTime: -1 },
+      { name: 'bookings_customer_phone_time' }
+    ),
     db.mongoCollection('locks').createIndex({ expiryTime: 1, foodItemId: 1 })
   ]);
   console.log('MongoDB collections initialized.');
@@ -700,6 +708,8 @@ function initializeDatabase() {
       status TEXT NOT NULL, -- pending, redeemed, expired, cancelled
       redeemedTime TEXT
     )`);
+    db.run("CREATE INDEX IF NOT EXISTS bookings_customer_name_lower_time_idx ON bookings (LOWER(customerName), bookingTime DESC)");
+    db.run("CREATE INDEX IF NOT EXISTS bookings_customer_phone_time_idx ON bookings (customerPhone, bookingTime DESC)");
 
     // 3. Transactions (Cash Ledger) Table
     db.run(`CREATE TABLE IF NOT EXISTS transactions (
@@ -966,14 +976,17 @@ setInterval(() => {
 
 // --- SECURE ROUTING & HTML SERVING ---
 app.get('/', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.get('/admin', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
   res.sendFile(path.join(__dirname, 'admin.html'));
 });
 
 app.get('/scanner', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
   res.sendFile(path.join(__dirname, 'scanner.html'));
 });
 
@@ -1591,9 +1604,10 @@ app.post('/api/bookings/retrieve', (req, res) => {
   if (db.isMongo) {
     const filter = isPhoneLookup
       ? { customerPhone: phoneLookup }
-      : { customerName: { $regex: `^${safeLookup.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } };
+      : { customerName: safeLookup };
     db.mongoCollection('bookings')
       .find(filter)
+      .collation(isPhoneLookup ? { locale: 'simple' } : { locale: 'en', strength: 2 })
       .sort({ bookingTime: -1 })
       .toArray()
       .then(rows => returnMatches(rows.map(row => db.normalizeRow(row))))

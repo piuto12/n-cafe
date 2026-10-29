@@ -1,5 +1,6 @@
 // N Cafe Customer Portal Controller
 const CanteenState = {
+  CUSTOMER_DATA_CACHE_TTL: 15 * 60 * 1000,
   foodItems: [],
   cart: [],
   retrievedTickets: [],
@@ -23,6 +24,7 @@ const CanteenState = {
 
   async init() {
     this.loadCart();
+    this.loadCachedCustomerData();
 
     // Bind click on Special Offer buy button
     const buyBtn = document.getElementById('btn-cust-offer-buy');
@@ -36,9 +38,51 @@ const CanteenState = {
     updateCartBadges();
     await Promise.all([
       this.fetchSettings(),
-      this.fetchFoodCatalog(),
+      this.fetchFoodCatalog({ force: true }),
       this.loadSpecialOffer()
     ]);
+  },
+
+  readCustomerCache(key) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(key));
+      if (!cached || Date.now() - cached.savedAt > this.CUSTOMER_DATA_CACHE_TTL) return null;
+      return cached.value;
+    } catch (error) {
+      return null;
+    }
+  },
+
+  writeCustomerCache(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), value }));
+    } catch (error) {
+      console.warn('Unable to cache customer menu data:', error);
+    }
+  },
+
+  loadCachedCustomerData() {
+    const catalog = this.readCustomerCache('nc_customer_catalog_cache_v1');
+    const settings = this.readCustomerCache('nc_customer_settings_cache_v1');
+    const offer = this.readCustomerCache('nc_customer_offer_cache_v1');
+
+    if (Array.isArray(catalog)) {
+      this.foodItems = catalog;
+      this.catalogLoaded = true;
+      this.catalogFetchedAt = 0;
+    }
+    if (settings && typeof settings === 'object') {
+      this.accountDetails = settings;
+      this.applyAccountDetails();
+    }
+    if (offer && typeof offer === 'object') {
+      this.specialOffer = offer;
+      this.specialOfferLoaded = true;
+    }
+    if (this.catalogLoaded && this.specialOfferLoaded) {
+      this.applySpecialOfferToCatalog();
+    }
+    if (this.catalogLoaded) this.renderCurrentMenu();
   },
 
   loadRazorpayScript() {
@@ -63,24 +107,29 @@ const CanteenState = {
       const res = await fetch('/api/settings');
       if (res.ok) {
         this.accountDetails = await res.json();
-        const logo = document.getElementById('customer-logo-image');
-        if (logo && this.accountDetails.logoImage) {
-          logo.src = this.accountDetails.logoImage;
-          logo.style.display = 'block';
-          const fallback = document.getElementById('customer-logo-fallback');
-          if (fallback) fallback.style.display = 'none';
-        }
-        const logoContainer = document.querySelector('.logo-icon');
-        if (logoContainer) {
-          logoContainer.style.background = this.accountDetails.logoBackgroundColor || '#1b4d3e';
-        }
-        const hero = document.getElementById('customer-hero-banner');
-        if (hero && this.accountDetails.heroBannerImage) {
-          hero.style.setProperty('--hero-image', `url("${this.accountDetails.heroBannerImage}")`);
-        }
+        this.writeCustomerCache('nc_customer_settings_cache_v1', this.accountDetails);
+        this.applyAccountDetails();
       }
     } catch (e) {
       console.warn("Failed to fetch settings from API, using default merchant particulars:", e);
+    }
+  },
+
+  applyAccountDetails() {
+    const logo = document.getElementById('customer-logo-image');
+    if (logo && this.accountDetails.logoImage) {
+      logo.src = this.accountDetails.logoImage;
+      logo.style.display = 'block';
+      const fallback = document.getElementById('customer-logo-fallback');
+      if (fallback) fallback.style.display = 'none';
+    }
+    const logoContainer = document.querySelector('.logo-icon');
+    if (logoContainer) {
+      logoContainer.style.background = this.accountDetails.logoBackgroundColor || '#1b4d3e';
+    }
+    const hero = document.getElementById('customer-hero-banner');
+    if (hero && this.accountDetails.heroBannerImage) {
+      hero.style.setProperty('--hero-image', `url("${this.accountDetails.heroBannerImage}")`);
     }
   },
 
@@ -95,6 +144,7 @@ const CanteenState = {
         const res = await fetch('/api/food-items');
         if (!res.ok) throw new Error(`Catalog request failed (${res.status}).`);
         this.foodItems = await res.json();
+        this.writeCustomerCache('nc_customer_catalog_cache_v1', this.foodItems);
         this.catalogLoaded = true;
         this.catalogFetchedAt = Date.now();
         if (this.specialOfferLoaded) {
@@ -159,7 +209,10 @@ const CanteenState = {
     this.specialOfferRequest = (async () => {
       try {
         const res = await fetch('/api/special-offer');
-        if (res.ok) this.specialOffer = await res.json();
+        if (res.ok) {
+          this.specialOffer = await res.json();
+          this.writeCustomerCache('nc_customer_offer_cache_v1', this.specialOffer);
+        }
       } catch (e) {
         console.warn("Failed to load special offer settings:", e);
       } finally {
