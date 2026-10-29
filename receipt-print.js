@@ -89,7 +89,9 @@
     if (line) lines.push(line);
 
     lines.forEach(value => {
-      commands.push({ type: 'text', text: value, x, y, font, align: align || 'left' });
+      const textAlign = align || 'left';
+      const textX = textAlign === 'center' ? x + maxWidth / 2 : x;
+      commands.push({ type: 'text', text: value, x: textX, y, font, align: textAlign });
       y += lineHeight;
     });
     return y;

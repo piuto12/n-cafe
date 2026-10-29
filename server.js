@@ -111,7 +111,12 @@ app.use((req, res, next) => {
 // Serve static web pages
 app.use(express.static(path.join(__dirname), {
   dotfiles: 'deny',
-  index: false
+  index: false,
+  setHeaders(res, filePath) {
+    if (path.extname(filePath).toLowerCase() !== '.html') {
+      res.setHeader('Cache-Control', 'public, max-age=300');
+    }
+  }
 }));
 
 // --- DATABASE INITIALIZATION & SCHEMA CREATION ---

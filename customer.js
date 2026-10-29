@@ -4,6 +4,8 @@ const CanteenState = {
   cart: [],
   retrievedTickets: [],
   activeBooking: null,
+  retrievedTicketsTimerInterval: null,
+  retrievedTicketsPollInProgress: false,
   accountDetails: {
     name: 'N Cafe Services',
     bank: 'State Bank of India',
@@ -236,6 +238,10 @@ const AppRouter = {
   },
 
   openTicketRetrievalGate() {
+    if (CanteenState.retrievedTicketsTimerInterval) {
+      clearInterval(CanteenState.retrievedTicketsTimerInterval);
+      CanteenState.retrievedTicketsTimerInterval = null;
+    }
     document.getElementById('cust-retrieval-name').value = '';
     document.getElementById('cust-retrieval-passkey').value = '';
     const panel = document.getElementById('retrieval-results-panel');
@@ -244,6 +250,10 @@ const AppRouter = {
   },
 
   closeTicketRetrievalGate() {
+    if (CanteenState.retrievedTicketsTimerInterval) {
+      clearInterval(CanteenState.retrievedTicketsTimerInterval);
+      CanteenState.retrievedTicketsTimerInterval = null;
+    }
     document.getElementById('ticket-retrieval-gate').classList.remove('active');
   }
 };
@@ -1076,6 +1086,10 @@ async function renderTicketBarcode(booking) {
 // --- TICKET RETRIEVAL FINDER ---
 document.getElementById('retrieval-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (CanteenState.retrievedTicketsTimerInterval) {
+    clearInterval(CanteenState.retrievedTicketsTimerInterval);
+    CanteenState.retrievedTicketsTimerInterval = null;
+  }
   
   const name = document.getElementById('cust-retrieval-name').value.trim();
   const passkey = document.getElementById('cust-retrieval-passkey').value.trim();
@@ -1105,6 +1119,7 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
       allTickets.forEach(t => {
         const div = document.createElement('div');
         div.className = 'ticket-item-row';
+        div.dataset.bookingId = t.id;
         div.style.padding = '0.75rem 0';
         div.style.borderBottom = '1px dashed var(--border-dark)';
         
@@ -1123,12 +1138,13 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Total: ₹${t.totalAmount} | ${new Date(t.bookingTime).toLocaleDateString()}</div>
           </div>
           <div style="text-align: right; display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-end;">
-            ${badge}
+            <span class="retrieved-ticket-status">${badge}</span>
             <button class="btn-sm btn-sm-accent" onclick="loadRetrievedTicket('${t.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; margin-top: 0.25rem;">View Bill</button>
           </div>
         `;
         resultsContainer.appendChild(div);
       });
+      startRetrievedBillTracking();
     } else {
       const errorData = await res.json().catch(() => ({}));
       if (res.status === 404) {
@@ -1144,6 +1160,75 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
     alert('Unable to connect to the ticket service. Please try again.');
   }
 });
+
+function startRetrievedBillTracking() {
+  if (CanteenState.retrievedTicketsTimerInterval) {
+    clearInterval(CanteenState.retrievedTicketsTimerInterval);
+  }
+
+  const poll = async () => {
+    if (CanteenState.retrievedTicketsPollInProgress ||
+        !document.getElementById('ticket-retrieval-gate').classList.contains('active')) {
+      return;
+    }
+
+    const pendingTickets = CanteenState.retrievedTickets.filter(ticket => ticket.status === 'pending');
+    if (pendingTickets.length === 0) {
+      clearInterval(CanteenState.retrievedTicketsTimerInterval);
+      CanteenState.retrievedTicketsTimerInterval = null;
+      return;
+    }
+
+    CanteenState.retrievedTicketsPollInProgress = true;
+    try {
+      const updates = await Promise.all(pendingTickets.map(async ticket => {
+        const response = await fetch(`/api/bookings/status/${encodeURIComponent(ticket.id)}`);
+        if (!response.ok) {
+          throw new Error(`Bill status request failed (${response.status}).`);
+        }
+        return { ticket, status: await response.json() };
+      }));
+
+      const resultsContainer = document.getElementById('retrieval-results');
+      updates.forEach(({ ticket, status }) => {
+        ticket.redeemedTime = status.redeemedTime;
+        const row = Array.from(resultsContainer.querySelectorAll('.ticket-item-row'))
+          .find(element => element.dataset.bookingId === ticket.id);
+        const badgeContainer = row && row.querySelector('.retrieved-ticket-status');
+        const displayStatus = status.status === 'pending' &&
+          new Date(status.expiryTime).getTime() <= Date.now()
+          ? 'expired'
+          : status.status;
+        ticket.status = displayStatus;
+        if (!badgeContainer) return;
+        const badgeClass = displayStatus === 'redeemed'
+          ? 'badge-success'
+          : displayStatus === 'pending'
+            ? 'badge-warning'
+            : 'badge-danger';
+        const badgeText = displayStatus === 'redeemed'
+          ? 'Printed / Redeemed'
+          : displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1);
+        const badge = document.createElement('span');
+        badge.className = `badge ${badgeClass}`;
+        badge.textContent = badgeText;
+        badgeContainer.replaceChildren(badge);
+      });
+
+      if (!CanteenState.retrievedTickets.some(ticket => ticket.status === 'pending')) {
+        clearInterval(CanteenState.retrievedTicketsTimerInterval);
+        CanteenState.retrievedTicketsTimerInterval = null;
+      }
+    } catch (error) {
+      console.warn('Failed to update bill tracking statuses:', error);
+    } finally {
+      CanteenState.retrievedTicketsPollInProgress = false;
+    }
+  };
+
+  CanteenState.retrievedTicketsTimerInterval = setInterval(poll, 10000);
+  poll();
+}
 
 window.loadRetrievedTicket = function(bookingId) {
   const ticket = CanteenState.retrievedTickets ? CanteenState.retrievedTickets.find(x => x.id === bookingId) : null;
