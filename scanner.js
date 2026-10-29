@@ -135,23 +135,37 @@ const ScannerState = {
     // Manual code entry form
     document.getElementById('scanner-form').addEventListener('submit', (e) => {
       e.preventDefault();
-      const code = document.getElementById('barcode-scan-input').value.trim();
+      const input = document.getElementById('barcode-scan-input');
+      const code = input.value.trim();
       if (code) {
+        input.value = '';
         this.triggerScan(code);
       } else {
         alert("Please enter a barcode.");
       }
     });
 
+    window.addEventListener('focus', () => this.focusBarcodeInput());
+
     // Receipt Popups Actions
     document.getElementById('btn-receipt-cancel').addEventListener('click', () => this.closeReceiptPopup());
   },
 
   initScannerView() {
-    document.getElementById('barcode-scan-input').value = '';
+    const input = document.getElementById('barcode-scan-input');
+    input.value = '';
+    this.focusBarcodeInput();
     this.stopScannerCamera().then(() => {
       this.startScannerCamera();
     });
+  },
+
+  focusBarcodeInput() {
+    if (!this.token || document.getElementById('operator-scanner-container').style.display === 'none') return;
+    const receiptPopup = document.getElementById('receipt-popup-container');
+    if (receiptPopup && receiptPopup.classList.contains('active')) return;
+    const input = document.getElementById('barcode-scan-input');
+    if (input) input.focus({ preventScroll: true });
   },
 
   async startScannerCamera() {
@@ -245,6 +259,9 @@ const ScannerState = {
 
   async triggerScan(code) {
     const scannerPrompt = document.getElementById('scanner-prompt-text');
+    const barcodeInput = document.getElementById('barcode-scan-input');
+    if (barcodeInput) barcodeInput.value = '';
+    this.focusBarcodeInput();
     scannerPrompt.innerText = 'Verifying ticket barcode...';
     
     // Stop camera immediately to prevent duplicate scans
@@ -315,6 +332,7 @@ const ScannerState = {
         setTimeout(() => {
           feedbackWarning.style.display = 'none';
           scannerPrompt.innerText = 'Align barcode inside screen viewport';
+          this.focusBarcodeInput();
           this.startScannerCamera();
         }, 4000);
       } else if (res.status === 410) {
@@ -329,6 +347,7 @@ const ScannerState = {
         setTimeout(() => {
           feedbackError.style.display = 'none';
           scannerPrompt.innerText = 'Align barcode inside screen viewport';
+          this.focusBarcodeInput();
           this.startScannerCamera();
         }, 3000);
       } else {
@@ -346,6 +365,7 @@ const ScannerState = {
         setTimeout(() => {
           feedbackError.style.display = 'none';
           scannerPrompt.innerText = 'Align barcode inside screen viewport';
+          this.focusBarcodeInput();
           this.startScannerCamera();
         }, isUpiLink ? 6000 : 3000);
       }
@@ -353,6 +373,7 @@ const ScannerState = {
       console.error(err);
       alert("Network or verification server error.");
       scannerPrompt.innerText = 'Align barcode inside screen viewport';
+      this.focusBarcodeInput();
       this.startScannerCamera();
     }
   },
