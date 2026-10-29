@@ -9,6 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { MongoClient } = require('mongodb');
+const verifyPasskeys = require('./passkey-verifier');
 
 function readEnvironmentValue(name) {
   const value = process.env[name];
@@ -1546,7 +1547,7 @@ app.get('/api/bookings/status/:id', (req, res) => {
 });
 
 // Retrieve bookings by checkout name or phone and pass key (4-digit PIN).
-app.post('/api/bookings/retrieve', (req, res) => {
+app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (req, res) => {
   const { customerName, passkey } = req.body;
   const safeLookup = cleanText(customerName, 120);
   if (!safeLookup || typeof passkey !== 'string' || !/^\d{4}$/.test(passkey)) {
@@ -1565,16 +1566,12 @@ app.post('/api/bookings/retrieve', (req, res) => {
 
   const returnMatches = async rows => {
     try {
-      const matches = [];
-      for (const row of rows) {
-        try {
-          if (typeof row.passkey === 'string' && await bcrypt.compare(passkey, row.passkey)) {
-            matches.push(row);
-          }
-        } catch (error) {
-          console.warn('Skipping bill with an invalid stored pass key.');
-        }
+      const candidates = rows.filter(row => typeof row.passkey === 'string');
+      const verification = await verifyPasskeys(passkey, candidates.map(row => row.passkey));
+      if (verification.invalidCount > 0) {
+        console.warn(`Skipped ${verification.invalidCount} bill(s) with an invalid stored pass key.`);
       }
+      const matches = verification.matchingIndexes.map(index => candidates[index]);
       const processed = matches.map(row => {
         let items = row.items;
         if (typeof items === 'string') {
@@ -1596,7 +1593,11 @@ app.post('/api/bookings/retrieve', (req, res) => {
     } catch (error) {
       console.error('Failed to retrieve customer bills:', error);
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Unable to search bills right now. Please try again.' });
+        const statusCode = error.statusCode || 500;
+        const message = error.statusCode
+          ? error.message
+          : 'Unable to search bills right now. Please try again.';
+        res.status(statusCode).json({ error: message });
       }
     }
   };

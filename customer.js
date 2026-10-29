@@ -299,6 +299,11 @@ const AppRouter = {
     document.getElementById('cust-retrieval-passkey').value = '';
     const panel = document.getElementById('retrieval-results-panel');
     if (panel) panel.style.display = 'none';
+    const feedback = document.getElementById('retrieval-feedback');
+    if (feedback) {
+      feedback.textContent = '';
+      feedback.style.display = 'none';
+    }
     document.getElementById('ticket-retrieval-gate').classList.add('active');
   },
 
@@ -1139,11 +1144,27 @@ async function renderTicketBarcode(booking) {
 // --- TICKET RETRIEVAL FINDER ---
 document.getElementById('retrieval-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const form = e.currentTarget;
+  const submitButton = form.querySelector('button[type="submit"]');
+  const feedback = document.getElementById('retrieval-feedback');
+  const resultsContainer = document.getElementById('retrieval-results');
+  const panel = document.getElementById('retrieval-results-panel');
+  const showFeedback = message => {
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.style.display = 'block';
+  };
   if (CanteenState.retrievedTicketsTimerInterval) {
     clearInterval(CanteenState.retrievedTicketsTimerInterval);
     CanteenState.retrievedTicketsTimerInterval = null;
   }
-  
+
+  if (submitButton) submitButton.disabled = true;
+  form.setAttribute('aria-busy', 'true');
+  showFeedback('Searching for your bills. This can take a few seconds.');
+  if (panel) panel.style.display = 'none';
+  resultsContainer.replaceChildren();
+
   const name = document.getElementById('cust-retrieval-name').value.trim();
   const passkey = document.getElementById('cust-retrieval-passkey').value.trim();
 
@@ -1157,15 +1178,12 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
     if (res.ok) {
       const allTickets = await res.json();
       CanteenState.retrievedTickets = allTickets;
-      
-      const resultsContainer = document.getElementById('retrieval-results');
-      resultsContainer.innerHTML = '';
 
-      const panel = document.getElementById('retrieval-results-panel');
       if (panel) panel.style.display = 'block';
 
       if (allTickets.length === 0) {
         resultsContainer.innerHTML = `<p style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">No bills match that name and pass key.</p>`;
+        showFeedback('No bills matched that checkout name or phone number and PIN.');
         return;
       }
 
@@ -1197,20 +1215,24 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
         `;
         resultsContainer.appendChild(div);
       });
+      showFeedback(`${allTickets.length} bill${allTickets.length === 1 ? '' : 's'} found. Pending bill statuses refresh automatically.`);
       startRetrievedBillTracking();
     } else {
       const errorData = await res.json().catch(() => ({}));
       if (res.status === 404) {
-        alert(errorData.error || 'No bills found for this checkout name or phone and pass key.');
+        showFeedback(errorData.error || 'No bills found for this checkout name or phone and pass key.');
       } else if (res.status === 400) {
-        alert(errorData.error || 'Enter your checkout name or phone and 4-digit pass key.');
+        showFeedback(errorData.error || 'Enter your checkout name or phone and 4-digit pass key.');
       } else {
-        alert(errorData.error || 'Unable to search tickets right now. Please try again.');
+        showFeedback(errorData.error || 'Unable to search tickets right now. Please try again.');
       }
     }
   } catch (err) {
     console.error(err);
-    alert('Unable to connect to the ticket service. Please try again.');
+    showFeedback('Unable to connect to the ticket service. Please try again.');
+  } finally {
+    form.removeAttribute('aria-busy');
+    if (submitButton) submitButton.disabled = false;
   }
 });
 
@@ -1271,9 +1293,19 @@ function startRetrievedBillTracking() {
       if (!CanteenState.retrievedTickets.some(ticket => ticket.status === 'pending')) {
         clearInterval(CanteenState.retrievedTicketsTimerInterval);
         CanteenState.retrievedTicketsTimerInterval = null;
+        const feedback = document.getElementById('retrieval-feedback');
+        if (feedback) feedback.textContent = 'All bill statuses are up to date.';
+      } else {
+        const pendingCount = CanteenState.retrievedTickets.filter(ticket => ticket.status === 'pending').length;
+        const feedback = document.getElementById('retrieval-feedback');
+        if (feedback) {
+          feedback.textContent = `Tracking ${pendingCount} pending bill${pendingCount === 1 ? '' : 's'}. Status refreshes every 10 seconds.`;
+        }
       }
     } catch (error) {
       console.warn('Failed to update bill tracking statuses:', error);
+      const feedback = document.getElementById('retrieval-feedback');
+      if (feedback) feedback.textContent = 'Could not refresh bill statuses. Retrying shortly.';
     } finally {
       CanteenState.retrievedTicketsPollInProgress = false;
     }
