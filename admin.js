@@ -7,6 +7,9 @@ const AdminState = {
   transactions: [],
   bookings: [],
   billStatusFilter: 'all',
+  pollerInterval: null,
+  pollInProgress: false,
+  lastTransactionPollAt: 0,
   posCart: [],
   posBillingData: null,
   accountDetails: {
@@ -179,25 +182,34 @@ const AdminState = {
   },
 
   startAutoPoller() {
-    // Poll every 1 second to satisfy real-time mobile order detection requirement
+    if (this.pollerInterval) clearInterval(this.pollerInterval);
     this.pollerInterval = setInterval(async () => {
-      if (!this.token) return;
+      if (!this.token || this.pollInProgress) return;
+      this.pollInProgress = true;
       try {
         await this.fetchBookings();
-        await this.fetchTransactions();
-        
-        // Quietly update reports / dashboard without clearing active UI states
-        this.updateDashboardMetricsOnly();
-        this.updateSalesReportTable();
-        this.updateHistoryTableOnly();
-        const billsTab = document.getElementById('admin-tab-7');
-        if (billsTab && billsTab.classList.contains('active')) {
+        if (Date.now() - this.lastTransactionPollAt >= 30000) {
+          await this.fetchTransactions();
+          this.lastTransactionPollAt = Date.now();
+        }
+
+        const activeTab = document.querySelector('.admin-tab-content.active');
+        if (!activeTab) return;
+        if (activeTab.id === 'admin-tab-1') {
+          this.updateDashboardMetricsOnly();
+        } else if (activeTab.id === 'admin-tab-2') {
+          this.updateSalesReportTable();
+        } else if (activeTab.id === 'admin-tab-6') {
+          this.updateHistoryTableOnly();
+        } else if (activeTab.id === 'admin-tab-7') {
           this.updateBillsTableOnly();
         }
       } catch (e) {
         console.warn("Auto-poller failed:", e);
+      } finally {
+        this.pollInProgress = false;
       }
-    }, 1000);
+    }, 10000);
   },
 
   updateDashboardMetricsOnly() {
