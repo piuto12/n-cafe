@@ -1169,17 +1169,8 @@ async function processRazorpayCheckout(bookingData, keyId) {
 
     if (!orderRes.ok) {
       const errData = await orderRes.json();
+      await cancelPaymentGateway(false);
       alert(`Razorpay Order creation failed: ${errData.error || 'Check server keys'}`);
-      if (checkoutTimerInterval) {
-        clearInterval(checkoutTimerInterval);
-        checkoutTimerInterval = null;
-      }
-      // Release lock
-      fetch('/api/locks/release', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lockId: bookingData.lockId })
-      });
       return;
     }
 

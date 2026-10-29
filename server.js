@@ -865,14 +865,41 @@ function normalizeBookingItems(items, catalog) {
         if (!id || !Number.isInteger(quantity) || quantity < 1 || quantity > 50) return null;
         const food = catalog.find(entry => entry.id === id);
         if (!food) return null;
+        const offerPrice = Number(food.offerPrice ?? food.offer_price);
+        const regularPrice = Number(food.price);
         normalized.push({
           foodItemId: food.id,
           name: food.name,
           quantity,
-          price: Number(food.offerPrice && food.offerPrice < food.price ? food.offerPrice : food.price)
+          price: offerPrice > 0 && offerPrice < regularPrice ? offerPrice : regularPrice
         });
       }
-      return normalized;
+        return normalized;
+}
+
+function getActiveSpecialOfferCatalogEntry(callback) {
+  db.get("SELECT value FROM settings WHERE key = 'special_offer'", (err, row) => {
+      if (err) return callback(err);
+      if (!row) return callback(null, null);
+
+      try {
+        const offer = JSON.parse(row.value);
+        if (!offer || typeof offer !== 'object') return callback(null, null);
+        const title = cleanText(offer.title, 120);
+        const price = Number(offer.price);
+        if (!offer.active || !title || !Number.isFinite(price) || price <= 0) {
+          return callback(null, null);
+        }
+        callback(null, {
+          id: 'FD-SPECIAL',
+          name: title,
+          price,
+          offerPrice: null
+        });
+      } catch (error) {
+        callback(error);
+      }
+  });
 }
 
 // --- SECURE JWT AUTHENTICATION MIDDLEWARE ---
@@ -1640,6 +1667,9 @@ app.post('/api/payments/create-order', (req, res) => {
   // Fetch Razorpay credentials from db or environment
   db.all("SELECT * FROM food_items WHERE listed = 1 AND stock > 0", (catalogErr, catalog) => {
     if (catalogErr) return res.status(500).json({ error: 'Unable to validate menu items.' });
+    getActiveSpecialOfferCatalogEntry((offerErr, specialOffer) => {
+    if (offerErr) return res.status(500).json({ error: 'Unable to validate special offer.' });
+    if (specialOffer) catalog.push(specialOffer);
     const safeName = cleanText(bookingData.customerName, 120);
     const safePhone = cleanText(bookingData.customerPhone, 15);
     const normalizedItems = normalizeBookingItems(bookingData.items, catalog);
@@ -1695,6 +1725,7 @@ app.post('/api/payments/create-order', (req, res) => {
         res.status(500).json({ error: 'Failed to initialize payment gateway.' });
       }
       });
+    });
     });
   });
 });
