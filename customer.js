@@ -1089,8 +1089,7 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
 
     if (res.ok) {
       const allTickets = await res.json();
-      const tickets = allTickets.filter(t => t.status !== 'redeemed' && t.status !== 'cancelled');
-      CanteenState.retrievedTickets = tickets;
+      CanteenState.retrievedTickets = allTickets;
       
       const resultsContainer = document.getElementById('retrieval-results');
       resultsContainer.innerHTML = '';
@@ -1098,23 +1097,25 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
       const panel = document.getElementById('retrieval-results-panel');
       if (panel) panel.style.display = 'block';
 
-      if (tickets.length === 0) {
-        resultsContainer.innerHTML = `<p style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">No active tickets matching Name & Passkey.</p>`;
+      if (allTickets.length === 0) {
+        resultsContainer.innerHTML = `<p style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">No bills match that name and pass key.</p>`;
         return;
       }
 
-      tickets.forEach(t => {
+      allTickets.forEach(t => {
         const div = document.createElement('div');
         div.className = 'ticket-item-row';
         div.style.padding = '0.75rem 0';
         div.style.borderBottom = '1px dashed var(--border-dark)';
         
-        const isRedeemed = t.status === 'redeemed';
-        const isExpired = t.status === 'expired' || (new Date() > new Date(t.expiryTime));
+        const status = t.status === 'pending' && new Date() > new Date(t.expiryTime)
+          ? 'expired'
+          : t.status;
 
         let badge = '<span class="badge badge-warning">Pending</span>';
-        if (isRedeemed) badge = '<span class="badge badge-success">Redeemed</span>';
-        else if (isExpired) badge = '<span class="badge badge-danger">Expired</span>';
+        if (status === 'redeemed') badge = '<span class="badge badge-success">Printed / Redeemed</span>';
+        else if (status === 'expired') badge = '<span class="badge badge-danger">Expired</span>';
+        else if (status === 'cancelled') badge = '<span class="badge badge-danger">Cancelled</span>';
 
         div.innerHTML = `
           <div>
@@ -1123,7 +1124,7 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
           </div>
           <div style="text-align: right; display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-end;">
             ${badge}
-            ${(!isRedeemed && !isExpired) ? `<button class="btn-sm btn-sm-accent" onclick="loadRetrievedTicket('${t.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; margin-top: 0.25rem;">Show Ticket</button>` : ''}
+            <button class="btn-sm btn-sm-accent" onclick="loadRetrievedTicket('${t.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; margin-top: 0.25rem;">View Bill</button>
           </div>
         `;
         resultsContainer.appendChild(div);
@@ -1131,7 +1132,7 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
     } else {
       const errorData = await res.json().catch(() => ({}));
       if (res.status === 404) {
-        alert('No pending tickets found for this name and pass key.');
+        alert(errorData.error || 'No bills found for this name and pass key.');
       } else if (res.status === 400) {
         alert(errorData.error || 'Enter your full name and 4-digit pass key.');
       } else {

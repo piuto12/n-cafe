@@ -1536,7 +1536,7 @@ app.post('/api/bookings/retrieve', (req, res) => {
   }
 
   db.all(
-    "SELECT * FROM bookings WHERE LOWER(customerName) = ? AND status != 'redeemed' AND status != 'cancelled' ORDER BY bookingTime DESC",
+    "SELECT * FROM bookings WHERE LOWER(customerName) = ? ORDER BY bookingTime DESC",
     [safeName.toLowerCase()],
     async (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -1549,7 +1549,7 @@ app.post('/api/bookings/retrieve', (req, res) => {
         items: JSON.parse(r.items),
         passkey: undefined
       }));
-      if (processed.length === 0) return res.status(404).json({ error: 'No pending tickets found for this name and pass key.' });
+      if (processed.length === 0) return res.status(404).json({ error: 'No bills found for this name and pass key.' });
       res.json(processed);
     }
   );
