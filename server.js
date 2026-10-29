@@ -1540,31 +1540,79 @@ app.post('/api/bookings/retrieve', (req, res) => {
     return res.status(400).json({ error: 'Checkout name or phone and 4-digit pass key required.' });
   }
 
-  const phoneLookup = safeLookup.replace(/[^\d]/g, '');
+  let phoneLookup = safeLookup.replace(/[^\d]/g, '');
   const isPhoneLookup = /^[+()\d\s-]+$/.test(safeLookup) && validPhone(phoneLookup);
+  if (isPhoneLookup && safeLookup.trim().startsWith('+') && phoneLookup.startsWith('91') && phoneLookup.length === 12) {
+    phoneLookup = phoneLookup.slice(2);
+  }
   const sql = isPhoneLookup
     ? 'SELECT * FROM bookings WHERE customerPhone = ? ORDER BY bookingTime DESC'
     : 'SELECT * FROM bookings WHERE LOWER(customerName) = ? ORDER BY bookingTime DESC';
   const lookupValue = isPhoneLookup ? phoneLookup : safeLookup.toLowerCase();
 
-  db.all(
-    sql,
-    [lookupValue],
-    async (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
+  const returnMatches = async rows => {
+    try {
       const matches = [];
       for (const row of rows) {
-        if (await bcrypt.compare(passkey, row.passkey)) matches.push(row);
+        try {
+          if (typeof row.passkey === 'string' && await bcrypt.compare(passkey, row.passkey)) {
+            matches.push(row);
+          }
+        } catch (error) {
+          console.warn('Skipping bill with an invalid stored pass key.');
+        }
       }
-      const processed = matches.map(r => ({
-        ...r,
-        items: JSON.parse(r.items),
-        passkey: undefined
-      }));
+      const processed = matches.map(row => {
+        let items = row.items;
+        if (typeof items === 'string') {
+          try {
+            items = JSON.parse(items);
+          } catch (error) {
+            console.warn('Bill items could not be parsed.');
+            items = [];
+          }
+        }
+        return {
+          ...row,
+          items: Array.isArray(items) ? items : [],
+          passkey: undefined
+        };
+      });
       if (processed.length === 0) return res.status(404).json({ error: 'No bills found for this checkout name or phone and pass key.' });
       res.json(processed);
+    } catch (error) {
+      console.error('Failed to retrieve customer bills:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Unable to search bills right now. Please try again.' });
+      }
     }
-  );
+  };
+
+  if (db.isMongo) {
+    const filter = isPhoneLookup
+      ? { customerPhone: phoneLookup }
+      : { customerName: { $regex: `^${safeLookup.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } };
+    db.mongoCollection('bookings')
+      .find(filter)
+      .sort({ bookingTime: -1 })
+      .toArray()
+      .then(rows => returnMatches(rows.map(row => db.normalizeRow(row))))
+      .catch(error => {
+        console.error('Failed to query customer bills:', error);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Unable to search bills right now. Please try again.' });
+        }
+      });
+    return;
+  }
+
+  db.all(sql, [lookupValue], (err, rows) => {
+    if (err) {
+      console.error('Failed to query customer bills:', err);
+      return res.status(500).json({ error: 'Unable to search bills right now. Please try again.' });
+    }
+    returnMatches(rows);
+  });
 });
 
 // Cancel a pending ticket (admin only; payment and ledger records are not altered).
