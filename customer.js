@@ -1148,9 +1148,9 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
     } else {
       const errorData = await res.json().catch(() => ({}));
       if (res.status === 404) {
-        alert(errorData.error || 'No bills found for this name and pass key.');
+        alert(errorData.error || 'No bills found for this checkout name or phone and pass key.');
       } else if (res.status === 400) {
-        alert(errorData.error || 'Enter your full name and 4-digit pass key.');
+        alert(errorData.error || 'Enter your checkout name or phone and 4-digit pass key.');
       } else {
         alert(errorData.error || 'Unable to search tickets right now. Please try again.');
       }

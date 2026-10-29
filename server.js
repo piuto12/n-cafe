@@ -1532,17 +1532,24 @@ app.get('/api/bookings/status/:id', (req, res) => {
   });
 });
 
-// Retrieve Bookings by Customer Name and Pass Key (4-digit PIN)
+// Retrieve bookings by checkout name or phone and pass key (4-digit PIN).
 app.post('/api/bookings/retrieve', (req, res) => {
   const { customerName, passkey } = req.body;
-  const safeName = cleanText(customerName, 120);
-  if (!safeName || typeof passkey !== 'string' || !/^\d{4}$/.test(passkey)) {
-    return res.status(400).json({ error: 'Name and Pass Key PIN required.' });
+  const safeLookup = cleanText(customerName, 120);
+  if (!safeLookup || typeof passkey !== 'string' || !/^\d{4}$/.test(passkey)) {
+    return res.status(400).json({ error: 'Checkout name or phone and 4-digit pass key required.' });
   }
 
+  const phoneLookup = safeLookup.replace(/[^\d]/g, '');
+  const isPhoneLookup = /^[+()\d\s-]+$/.test(safeLookup) && validPhone(phoneLookup);
+  const sql = isPhoneLookup
+    ? 'SELECT * FROM bookings WHERE customerPhone = ? ORDER BY bookingTime DESC'
+    : 'SELECT * FROM bookings WHERE LOWER(customerName) = ? ORDER BY bookingTime DESC';
+  const lookupValue = isPhoneLookup ? phoneLookup : safeLookup.toLowerCase();
+
   db.all(
-    "SELECT * FROM bookings WHERE LOWER(customerName) = ? ORDER BY bookingTime DESC",
-    [safeName.toLowerCase()],
+    sql,
+    [lookupValue],
     async (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
       const matches = [];
@@ -1554,7 +1561,7 @@ app.post('/api/bookings/retrieve', (req, res) => {
         items: JSON.parse(r.items),
         passkey: undefined
       }));
-      if (processed.length === 0) return res.status(404).json({ error: 'No bills found for this name and pass key.' });
+      if (processed.length === 0) return res.status(404).json({ error: 'No bills found for this checkout name or phone and pass key.' });
       res.json(processed);
     }
   );
