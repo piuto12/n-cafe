@@ -1177,45 +1177,39 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
 
     if (res.ok) {
       const allTickets = await res.json();
-      CanteenState.retrievedTickets = allTickets;
+      const currentTime = Date.now();
+      CanteenState.retrievedTickets = allTickets.filter(ticket =>
+        ticket.status === 'pending' && new Date(ticket.expiryTime).getTime() > currentTime
+      );
 
       if (panel) panel.style.display = 'block';
 
-      if (allTickets.length === 0) {
-        resultsContainer.innerHTML = `<p style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">No bills match that name and pass key.</p>`;
-        showFeedback('No bills matched that checkout name or phone number and PIN.');
+      if (CanteenState.retrievedTickets.length === 0) {
+        resultsContainer.innerHTML = `<p style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">No pending bills found.</p>`;
+        showFeedback('No pending bills found for that checkout name or phone number and PIN.');
         return;
       }
 
-      allTickets.forEach(t => {
+      CanteenState.retrievedTickets.forEach(t => {
         const div = document.createElement('div');
         div.className = 'ticket-item-row';
         div.dataset.bookingId = t.id;
         div.style.padding = '0.75rem 0';
         div.style.borderBottom = '1px dashed var(--border-dark)';
         
-        const status = t.status === 'pending' && new Date() > new Date(t.expiryTime)
-          ? 'expired'
-          : t.status;
-
-        let badge = '<span class="badge badge-warning">Pending</span>';
-        if (status === 'redeemed') badge = '<span class="badge badge-success">Printed / Redeemed</span>';
-        else if (status === 'expired') badge = '<span class="badge badge-danger">Expired</span>';
-        else if (status === 'cancelled') badge = '<span class="badge badge-danger">Cancelled</span>';
-
         div.innerHTML = `
           <div>
             <div style="font-weight: 600; font-size: 0.85rem; word-break: break-all;">${t.id.substring(0, 15)}...</div>
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Total: ₹${t.totalAmount} | ${new Date(t.bookingTime).toLocaleDateString()}</div>
           </div>
           <div style="text-align: right; display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-end;">
-            <span class="retrieved-ticket-status">${badge}</span>
+            <span class="retrieved-ticket-status"><span class="badge badge-warning">Pending</span></span>
             <button class="btn-sm btn-sm-accent" onclick="loadRetrievedTicket('${t.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; margin-top: 0.25rem;">View Bill</button>
           </div>
         `;
         resultsContainer.appendChild(div);
       });
-      showFeedback(`${allTickets.length} bill${allTickets.length === 1 ? '' : 's'} found. Pending bill statuses refresh automatically.`);
+      showFeedback(`${CanteenState.retrievedTickets.length} pending bill${CanteenState.retrievedTickets.length === 1 ? '' : 's'} found. Status refreshes automatically.`);
       startRetrievedBillTracking();
     } else {
       const errorData = await res.json().catch(() => ({}));
@@ -1269,37 +1263,28 @@ function startRetrievedBillTracking() {
         ticket.redeemedTime = status.redeemedTime;
         const row = Array.from(resultsContainer.querySelectorAll('.ticket-item-row'))
           .find(element => element.dataset.bookingId === ticket.id);
-        const badgeContainer = row && row.querySelector('.retrieved-ticket-status');
         const displayStatus = status.status === 'pending' &&
           new Date(status.expiryTime).getTime() <= Date.now()
           ? 'expired'
           : status.status;
         ticket.status = displayStatus;
-        if (!badgeContainer) return;
-        const badgeClass = displayStatus === 'redeemed'
-          ? 'badge-success'
-          : displayStatus === 'pending'
-            ? 'badge-warning'
-            : 'badge-danger';
-        const badgeText = displayStatus === 'redeemed'
-          ? 'Printed / Redeemed'
-          : displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1);
-        const badge = document.createElement('span');
-        badge.className = `badge ${badgeClass}`;
-        badge.textContent = badgeText;
-        badgeContainer.replaceChildren(badge);
+        if (displayStatus !== 'pending' && row) row.remove();
       });
 
+      CanteenState.retrievedTickets = CanteenState.retrievedTickets.filter(ticket => ticket.status === 'pending');
       if (!CanteenState.retrievedTickets.some(ticket => ticket.status === 'pending')) {
         clearInterval(CanteenState.retrievedTicketsTimerInterval);
         CanteenState.retrievedTicketsTimerInterval = null;
         const feedback = document.getElementById('retrieval-feedback');
-        if (feedback) feedback.textContent = 'All bill statuses are up to date.';
+        if (resultsContainer) {
+          resultsContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">No pending bills found.</p>';
+        }
+        if (feedback) feedback.textContent = 'No pending bills remain.';
       } else {
         const pendingCount = CanteenState.retrievedTickets.filter(ticket => ticket.status === 'pending').length;
         const feedback = document.getElementById('retrieval-feedback');
         if (feedback) {
-          feedback.textContent = `Tracking ${pendingCount} pending bill${pendingCount === 1 ? '' : 's'}. Status refreshes every 10 seconds.`;
+          feedback.textContent = `Tracking ${pendingCount} pending bill${pendingCount === 1 ? '' : 's'}.`;
         }
       }
     } catch (error) {

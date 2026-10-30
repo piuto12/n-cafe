@@ -1560,9 +1560,10 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
     phoneLookup = phoneLookup.slice(2);
   }
   const sql = isPhoneLookup
-    ? 'SELECT * FROM bookings WHERE customerPhone = ? ORDER BY bookingTime DESC'
-    : 'SELECT * FROM bookings WHERE LOWER(customerName) = ? ORDER BY bookingTime DESC';
+    ? "SELECT * FROM bookings WHERE customerPhone = ? AND status = 'pending' AND expiryTime > ? ORDER BY bookingTime DESC"
+    : "SELECT * FROM bookings WHERE LOWER(customerName) = ? AND status = 'pending' AND expiryTime > ? ORDER BY bookingTime DESC";
   const lookupValue = isPhoneLookup ? phoneLookup : safeLookup.toLowerCase();
+  const currentTime = new Date().toISOString();
 
   const returnMatches = async rows => {
     try {
@@ -1588,7 +1589,7 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
           passkey: undefined
         };
       });
-      if (processed.length === 0) return res.status(404).json({ error: 'No bills found for this checkout name or phone and pass key.' });
+      if (processed.length === 0) return res.status(404).json({ error: 'No pending bills found for this checkout name or phone and pass key.' });
       res.json(processed);
     } catch (error) {
       console.error('Failed to retrieve customer bills:', error);
@@ -1604,8 +1605,8 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
 
   if (db.isMongo) {
     const filter = isPhoneLookup
-      ? { customerPhone: phoneLookup }
-      : { customerName: safeLookup };
+      ? { customerPhone: phoneLookup, status: 'pending', expiryTime: { $gt: currentTime } }
+      : { customerName: safeLookup, status: 'pending', expiryTime: { $gt: currentTime } };
     db.mongoCollection('bookings')
       .find(filter)
       .collation(isPhoneLookup ? { locale: 'simple' } : { locale: 'en', strength: 2 })
@@ -1621,7 +1622,7 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
     return;
   }
 
-  db.all(sql, [lookupValue], (err, rows) => {
+  db.all(sql, [lookupValue, currentTime], (err, rows) => {
     if (err) {
       console.error('Failed to query customer bills:', err);
       return res.status(500).json({ error: 'Unable to search bills right now. Please try again.' });
