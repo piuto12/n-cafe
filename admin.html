@@ -868,6 +868,16 @@
         <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">
           Review pending, printed/redeemed, and expired bills. Cancelling a ticket does not issue a payment refund or restore stock. Deleting a bill keeps its accounting ledger entry.
         </p>
+        <div style="display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap;">
+          <div>
+            <label for="bills-date-from" style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">From date</label>
+            <input type="date" id="bills-date-from" style="padding: 0.55rem; background: var(--bg-dark); border: 1px solid var(--border-dark); color: var(--text-main); border-radius: 6px;">
+          </div>
+          <div>
+            <label for="bills-date-to" style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">To date</label>
+            <input type="date" id="bills-date-to" style="padding: 0.55rem; background: var(--bg-dark); border: 1px solid var(--border-dark); color: var(--text-main); border-radius: 6px;">
+          </div>
+        </div>
         <div style="max-width: 260px;">
           <label for="bills-status-filter" style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">Show bills</label>
           <select id="bills-status-filter" style="width: 100%; padding: 0.55rem; background: var(--bg-dark); border: 1px solid var(--border-dark); color: var(--text-main); border-radius: 6px;">

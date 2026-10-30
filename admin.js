@@ -346,6 +346,13 @@ const AdminState = {
       });
     }
 
+    ['bills-date-from', 'bills-date-to'].forEach(id => {
+      const dateFilter = document.getElementById(id);
+      if (dateFilter) {
+        dateFilter.addEventListener('change', () => this.updateBillsTableOnly());
+      }
+    });
+
     const billsTable = document.getElementById('bills-tbody');
     if (billsTable) {
       billsTable.addEventListener('change', (event) => {
@@ -1502,9 +1509,21 @@ const AdminState = {
 
     const filter = document.getElementById('bills-status-filter');
     if (filter) filter.value = this.billStatusFilter;
+    const fromDate = document.getElementById('bills-date-from')?.value || '';
+    const toDate = document.getElementById('bills-date-to')?.value || '';
+    const fromTimestamp = fromDate
+      ? new Date(`${fromDate}T00:00:00`).getTime()
+      : null;
+    const toTimestamp = toDate
+      ? new Date(`${toDate}T23:59:59.999`).getTime()
+      : null;
     const bookings = this.bookings.filter(booking => {
       const status = this.getBookingDisplayStatus(booking);
-      return this.billStatusFilter === 'all' || status === this.billStatusFilter;
+      const bookingTimestamp = new Date(booking.bookingTime).getTime();
+      const matchesStatus = this.billStatusFilter === 'all' || status === this.billStatusFilter;
+      const matchesFrom = fromTimestamp === null || bookingTimestamp >= fromTimestamp;
+      const matchesTo = toTimestamp === null || bookingTimestamp <= toTimestamp;
+      return matchesStatus && matchesFrom && matchesTo;
     });
     const visibleIds = new Set(bookings.map(booking => booking.id));
     this.selectedBillIds = new Set([...this.selectedBillIds].filter(id => visibleIds.has(id)));
