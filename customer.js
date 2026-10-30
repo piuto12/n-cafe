@@ -1186,7 +1186,7 @@ document.getElementById('retrieval-form').addEventListener('submit', async (e) =
 
       if (CanteenState.retrievedTickets.length === 0) {
         resultsContainer.innerHTML = `<p style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">No pending bills found.</p>`;
-        showFeedback('No pending bills found for that checkout name or phone number and PIN.');
+        showFeedback('No pending bills found for that bill ID, checkout name, or phone number and PIN.');
         return;
       }
 

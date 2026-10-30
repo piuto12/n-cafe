@@ -662,6 +662,15 @@ async function initializeMongoDatabase() {
       { customerPhone: 1, bookingTime: -1 },
       { name: 'bookings_customer_phone_time' }
     ),
+    db.mongoCollection('bookings').createIndex(
+      { customerName: 1, status: 1, bookingTime: -1, expiryTime: 1 },
+      { name: 'bookings_pending_customer_name_time', collation: { locale: 'en', strength: 2 } }
+    ),
+    db.mongoCollection('bookings').createIndex(
+      { customerPhone: 1, status: 1, bookingTime: -1, expiryTime: 1 },
+      { name: 'bookings_pending_customer_phone_time' }
+    ),
+    db.mongoCollection('bookings').createIndex({ id: 1 }, { name: 'bookings_id' }),
     db.mongoCollection('locks').createIndex({ expiryTime: 1, foodItemId: 1 })
   ]);
   console.log('MongoDB collections initialized.');
@@ -711,6 +720,8 @@ function initializeDatabase() {
     )`);
     db.run("CREATE INDEX IF NOT EXISTS bookings_customer_name_lower_time_idx ON bookings (LOWER(customerName), bookingTime DESC)");
     db.run("CREATE INDEX IF NOT EXISTS bookings_customer_phone_time_idx ON bookings (customerPhone, bookingTime DESC)");
+    db.run("CREATE INDEX IF NOT EXISTS bookings_pending_customer_name_time_idx ON bookings (LOWER(customerName), status, bookingTime DESC, expiryTime)");
+    db.run("CREATE INDEX IF NOT EXISTS bookings_pending_customer_phone_time_idx ON bookings (customerPhone, status, bookingTime DESC, expiryTime)");
 
     // 3. Transactions (Cash Ledger) Table
     db.run(`CREATE TABLE IF NOT EXISTS transactions (
@@ -1551,18 +1562,25 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
   const { customerName, passkey } = req.body;
   const safeLookup = cleanText(customerName, 120);
   if (!safeLookup || typeof passkey !== 'string' || !/^\d{4}$/.test(passkey)) {
-    return res.status(400).json({ error: 'Checkout name or phone and 4-digit pass key required.' });
+    return res.status(400).json({ error: 'Bill ID, checkout name, or phone and 4-digit pass key required.' });
   }
 
+  const isBillIdLookup = /^NC-[A-Za-z0-9]{17}$/.test(safeLookup);
   let phoneLookup = safeLookup.replace(/[^\d]/g, '');
   const isPhoneLookup = /^[+()\d\s-]+$/.test(safeLookup) && validPhone(phoneLookup);
   if (isPhoneLookup && safeLookup.trim().startsWith('+') && phoneLookup.startsWith('91') && phoneLookup.length === 12) {
     phoneLookup = phoneLookup.slice(2);
   }
-  const sql = isPhoneLookup
-    ? "SELECT * FROM bookings WHERE customerPhone = ? AND status = 'pending' AND expiryTime > ? ORDER BY bookingTime DESC"
-    : "SELECT * FROM bookings WHERE LOWER(customerName) = ? AND status = 'pending' AND expiryTime > ? ORDER BY bookingTime DESC";
-  const lookupValue = isPhoneLookup ? phoneLookup : safeLookup.toLowerCase();
+  const sql = isBillIdLookup
+    ? "SELECT * FROM bookings WHERE id = ? AND status = 'pending' AND expiryTime > ?"
+    : isPhoneLookup
+      ? "SELECT * FROM bookings WHERE customerPhone = ? AND status = 'pending' AND expiryTime > ? ORDER BY bookingTime DESC"
+      : "SELECT * FROM bookings WHERE LOWER(customerName) = ? AND status = 'pending' AND expiryTime > ? ORDER BY bookingTime DESC";
+  const lookupValue = isBillIdLookup
+    ? safeLookup
+    : isPhoneLookup
+      ? phoneLookup
+      : safeLookup.toLowerCase();
   const currentTime = new Date().toISOString();
 
   const returnMatches = async rows => {
@@ -1604,14 +1622,17 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
   };
 
   if (db.isMongo) {
-    const filter = isPhoneLookup
-      ? { customerPhone: phoneLookup, status: 'pending', expiryTime: { $gt: currentTime } }
-      : { customerName: safeLookup, status: 'pending', expiryTime: { $gt: currentTime } };
-    db.mongoCollection('bookings')
-      .find(filter)
-      .collation(isPhoneLookup ? { locale: 'simple' } : { locale: 'en', strength: 2 })
-      .sort({ bookingTime: -1 })
-      .toArray()
+    const filter = isBillIdLookup
+      ? { id: safeLookup, status: 'pending', expiryTime: { $gt: currentTime } }
+      : isPhoneLookup
+        ? { customerPhone: phoneLookup, status: 'pending', expiryTime: { $gt: currentTime } }
+        : { customerName: safeLookup, status: 'pending', expiryTime: { $gt: currentTime } };
+    const query = db.mongoCollection('bookings').find(filter);
+    if (!isBillIdLookup) {
+      query.collation(isPhoneLookup ? { locale: 'simple' } : { locale: 'en', strength: 2 })
+        .sort({ bookingTime: -1 });
+    }
+    query.toArray()
       .then(rows => returnMatches(rows.map(row => db.normalizeRow(row))))
       .catch(error => {
         console.error('Failed to query customer bills:', error);

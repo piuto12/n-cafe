@@ -10,7 +10,6 @@ const workerCount = Math.max(
 );
 const workers = [];
 const queuedJobs = [];
-let poolStarted = false;
 let nextJobId = 0;
 
 function dispatchJobs() {
@@ -73,10 +72,8 @@ function startWorker(slot) {
   });
 }
 
-function startPool() {
-  if (poolStarted) return;
-  poolStarted = true;
-  for (let i = 0; i < workerCount; i += 1) {
+function startPool(requiredCount) {
+  while (workers.length < requiredCount) {
     const slot = { worker: null, job: null };
     workers.push(slot);
     startWorker(slot);
@@ -98,9 +95,10 @@ function enqueueJob(passkey, hashes) {
 
 async function verifyPasskeys(passkey, hashes) {
   if (hashes.length === 0) return { matchingIndexes: [], invalidCount: 0 };
-  startPool();
+  const concurrency = Math.min(workerCount, hashes.length);
+  startPool(concurrency);
 
-  const groupSize = Math.ceil(hashes.length / workerCount);
+  const groupSize = Math.ceil(hashes.length / concurrency);
   const groups = [];
   for (let start = 0; start < hashes.length; start += groupSize) {
     groups.push(hashes.slice(start, start + groupSize).map((hash, offset) => ({
