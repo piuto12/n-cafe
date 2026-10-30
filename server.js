@@ -21,6 +21,10 @@ function readEnvironmentValue(name) {
 const app = express();
 const PORT = process.env.PORT || 8000;
 const JWT_SECRET = process.env.JWT_SECRET;
+const BILL_PIN_INDEX_KEY = JWT_SECRET;
+function createBillPinLookup(passkey) {
+  return crypto.createHmac('sha256', BILL_PIN_INDEX_KEY).update(passkey).digest('hex');
+}
 const missingEnvironment = ['JWT_SECRET', 'ADMIN_PASSWORD', 'OPERATOR_PIN']
   .filter((name) => !process.env[name]);
 if (missingEnvironment.length > 0) {
@@ -663,12 +667,12 @@ async function initializeMongoDatabase() {
       { name: 'bookings_customer_phone_time' }
     ),
     db.mongoCollection('bookings').createIndex(
-      { customerName: 1, status: 1, bookingTime: -1, expiryTime: 1 },
-      { name: 'bookings_pending_customer_name_time', collation: { locale: 'en', strength: 2 } }
+      { customerName: 1, status: 1, passkeyLookup: 1, bookingTime: -1, expiryTime: 1 },
+      { name: 'bookings_pending_customer_name_pin_time', collation: { locale: 'en', strength: 2 } }
     ),
     db.mongoCollection('bookings').createIndex(
-      { customerPhone: 1, status: 1, bookingTime: -1, expiryTime: 1 },
-      { name: 'bookings_pending_customer_phone_time' }
+      { customerPhone: 1, status: 1, passkeyLookup: 1, bookingTime: -1, expiryTime: 1 },
+      { name: 'bookings_pending_customer_phone_pin_time' }
     ),
     db.mongoCollection('bookings').createIndex({ id: 1 }, { name: 'bookings_id' }),
     db.mongoCollection('locks').createIndex({ expiryTime: 1, foodItemId: 1 })
@@ -709,6 +713,7 @@ function initializeDatabase() {
       customerName TEXT NOT NULL,
       customerPhone TEXT NOT NULL,
       passkey TEXT NOT NULL,
+      passkeyLookup TEXT,
       items TEXT NOT NULL, -- JSON string
       totalAmount REAL NOT NULL,
       paymentMethod TEXT NOT NULL,
@@ -718,10 +723,13 @@ function initializeDatabase() {
       status TEXT NOT NULL, -- pending, redeemed, expired, cancelled
       redeemedTime TEXT
     )`);
+    db.run("ALTER TABLE bookings ADD COLUMN passkeyLookup TEXT", () => {});
     db.run("CREATE INDEX IF NOT EXISTS bookings_customer_name_lower_time_idx ON bookings (LOWER(customerName), bookingTime DESC)");
     db.run("CREATE INDEX IF NOT EXISTS bookings_customer_phone_time_idx ON bookings (customerPhone, bookingTime DESC)");
     db.run("CREATE INDEX IF NOT EXISTS bookings_pending_customer_name_time_idx ON bookings (LOWER(customerName), status, bookingTime DESC, expiryTime)");
     db.run("CREATE INDEX IF NOT EXISTS bookings_pending_customer_phone_time_idx ON bookings (customerPhone, status, bookingTime DESC, expiryTime)");
+    db.run("CREATE INDEX IF NOT EXISTS bookings_pending_customer_name_pin_time_idx ON bookings (LOWER(customerName), status, passkeyLookup, bookingTime DESC, expiryTime)");
+    db.run("CREATE INDEX IF NOT EXISTS bookings_pending_customer_phone_pin_time_idx ON bookings (customerPhone, status, passkeyLookup, bookingTime DESC, expiryTime)");
 
     // 3. Transactions (Cash Ledger) Table
     db.run(`CREATE TABLE IF NOT EXISTS transactions (
@@ -1572,10 +1580,11 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
     phoneLookup = phoneLookup.slice(2);
   }
   const sql = isBillIdLookup
-    ? "SELECT * FROM bookings WHERE id = ? AND status = 'pending' AND expiryTime > ?"
+    ? "SELECT * FROM bookings WHERE id = ? AND status = 'pending' AND expiryTime > ? AND (passkeyLookup = ? OR passkeyLookup IS NULL)"
     : isPhoneLookup
-      ? "SELECT * FROM bookings WHERE customerPhone = ? AND status = 'pending' AND expiryTime > ? ORDER BY bookingTime DESC"
-      : "SELECT * FROM bookings WHERE LOWER(customerName) = ? AND status = 'pending' AND expiryTime > ? ORDER BY bookingTime DESC";
+      ? "SELECT * FROM bookings WHERE customerPhone = ? AND status = 'pending' AND (passkeyLookup = ? OR passkeyLookup IS NULL) AND expiryTime > ? ORDER BY bookingTime DESC"
+      : "SELECT * FROM bookings WHERE LOWER(customerName) = ? AND status = 'pending' AND (passkeyLookup = ? OR passkeyLookup IS NULL) AND expiryTime > ? ORDER BY bookingTime DESC";
+  const passkeyLookup = createBillPinLookup(passkey);
   const lookupValue = isBillIdLookup
     ? safeLookup
     : isPhoneLookup
@@ -1585,12 +1594,26 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
 
   const returnMatches = async rows => {
     try {
-      const candidates = rows.filter(row => typeof row.passkey === 'string');
-      const verification = await verifyPasskeys(passkey, candidates.map(row => row.passkey));
+      const indexedMatches = rows.filter(row => row.passkeyLookup === passkeyLookup);
+      const legacyCandidates = rows.filter(row => !row.passkeyLookup && typeof row.passkey === 'string');
+      const verification = await verifyPasskeys(passkey, legacyCandidates.map(row => row.passkey));
       if (verification.invalidCount > 0) {
         console.warn(`Skipped ${verification.invalidCount} bill(s) with an invalid stored pass key.`);
       }
-      const matches = verification.matchingIndexes.map(index => candidates[index]);
+      const legacyMatches = verification.matchingIndexes.map(index => legacyCandidates[index]);
+      const matches = indexedMatches.concat(legacyMatches);
+      await Promise.all(legacyMatches.map(row => new Promise(resolve => {
+        db.run(
+          'UPDATE bookings SET passkeyLookup = ? WHERE id = ?',
+          [passkeyLookup, row.id],
+          error => {
+            if (error) {
+              console.warn(`Could not index PIN lookup for bill ${row.id}:`, error);
+            }
+            resolve();
+          }
+        );
+      })));
       const processed = matches.map(row => {
         let items = row.items;
         if (typeof items === 'string') {
@@ -1604,7 +1627,8 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
         return {
           ...row,
           items: Array.isArray(items) ? items : [],
-          passkey: undefined
+          passkey: undefined,
+          passkeyLookup: undefined
         };
       });
       if (processed.length === 0) return res.status(404).json({ error: 'No pending bills found for this checkout name or phone and pass key.' });
@@ -1622,15 +1646,24 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
   };
 
   if (db.isMongo) {
-    const filter = isBillIdLookup
-      ? { id: safeLookup, status: 'pending', expiryTime: { $gt: currentTime } }
-      : isPhoneLookup
-        ? { customerPhone: phoneLookup, status: 'pending', expiryTime: { $gt: currentTime } }
-        : { customerName: safeLookup, status: 'pending', expiryTime: { $gt: currentTime } };
+    const filter = {
+      status: 'pending',
+      expiryTime: { $gt: currentTime },
+      $or: [{ passkeyLookup }, { passkeyLookup: null }]
+    };
+    if (isBillIdLookup) {
+      filter.id = safeLookup;
+    } else if (isPhoneLookup) {
+      filter.customerPhone = phoneLookup;
+    } else {
+      filter.customerName = safeLookup;
+    }
     const query = db.mongoCollection('bookings').find(filter);
+    if (!isBillIdLookup && !isPhoneLookup) {
+      query.collation({ locale: 'en', strength: 2 });
+    }
     if (!isBillIdLookup) {
-      query.collation(isPhoneLookup ? { locale: 'simple' } : { locale: 'en', strength: 2 })
-        .sort({ bookingTime: -1 });
+      query.sort({ bookingTime: -1 });
     }
     query.toArray()
       .then(rows => returnMatches(rows.map(row => db.normalizeRow(row))))
@@ -1643,7 +1676,10 @@ app.post('/api/bookings/retrieve', rateLimit(60 * 1000, 10, 'bill-retrieve'), (r
     return;
   }
 
-  db.all(sql, [lookupValue, currentTime], (err, rows) => {
+  const params = isBillIdLookup
+    ? [lookupValue, currentTime, passkeyLookup]
+    : [lookupValue, passkeyLookup, currentTime];
+  db.all(sql, params, (err, rows) => {
     if (err) {
       console.error('Failed to query customer bills:', err);
       return res.status(500).json({ error: 'Unable to search bills right now. Please try again.' });
@@ -1903,8 +1939,8 @@ app.post('/api/payments/verify-signature', (req, res) => {
             updateStmt.finalize();
 
             db.run(
-              "INSERT INTO bookings (id, customerName, customerPhone, passkey, items, totalAmount, paymentMethod, paymentStatus, bookingTime, expiryTime, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-              [id, customerName, customerPhone, bcrypt.hashSync(passkey, 12), JSON.stringify(items), totalAmount, 'Razorpay (Online)', 'Paid', bookingTime, expiryTime, 'pending']
+              "INSERT INTO bookings (id, customerName, customerPhone, passkey, passkeyLookup, items, totalAmount, paymentMethod, paymentStatus, bookingTime, expiryTime, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              [id, customerName, customerPhone, bcrypt.hashSync(passkey, 12), createBillPinLookup(passkey), JSON.stringify(items), totalAmount, 'Razorpay (Online)', 'Paid', bookingTime, expiryTime, 'pending']
             );
 
             const txId = 'TX-' + Math.floor(20000 + Math.random() * 80000).toString();
@@ -1996,8 +2032,8 @@ app.post('/api/bookings', rateLimit(60 * 1000, 20, 'booking-create'), (req, res)
 
         // Insert booking record
         db.run(
-          "INSERT INTO bookings (id, customerName, customerPhone, passkey, items, totalAmount, paymentMethod, paymentStatus, bookingTime, expiryTime, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [id, safeName, safePhone, hashedPasskey, JSON.stringify(normalizedItems), serverTotal, 'UPI', 'Paid', bookingTime, expiryTime, 'pending']
+          "INSERT INTO bookings (id, customerName, customerPhone, passkey, passkeyLookup, items, totalAmount, paymentMethod, paymentStatus, bookingTime, expiryTime, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [id, safeName, safePhone, hashedPasskey, createBillPinLookup(passkey), JSON.stringify(normalizedItems), serverTotal, 'UPI', 'Paid', bookingTime, expiryTime, 'pending']
         );
 
         // Create cashier ledger transaction logs
@@ -2176,9 +2212,9 @@ app.post('/api/backup/restore', authenticateToken(['admin']), (req, res) => {
     // Clear and refill bookings
     if (data.bookings) {
       db.run("DELETE FROM bookings");
-      const stmt = db.prepare("INSERT INTO bookings (id, customerName, customerPhone, passkey, items, totalAmount, paymentMethod, paymentStatus, bookingTime, expiryTime, status, redeemedTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      const stmt = db.prepare("INSERT INTO bookings (id, customerName, customerPhone, passkey, passkeyLookup, items, totalAmount, paymentMethod, paymentStatus, bookingTime, expiryTime, status, redeemedTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
       data.bookings.forEach(b => {
-        stmt.run([b.id, b.customerName, b.customerPhone, b.passkey, JSON.stringify(b.items), b.totalAmount, b.paymentMethod, b.paymentStatus, b.bookingTime, b.expiryTime, b.status, b.redeemedTime || null]);
+        stmt.run([b.id, b.customerName, b.customerPhone, b.passkey, b.passkeyLookup || null, JSON.stringify(b.items), b.totalAmount, b.paymentMethod, b.paymentStatus, b.bookingTime, b.expiryTime, b.status, b.redeemedTime || null]);
       });
       stmt.finalize();
     }
