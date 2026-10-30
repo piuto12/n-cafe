@@ -878,10 +878,16 @@
             <option value="cancelled">Cancelled</option>
           </select>
         </div>
+        <div id="bills-bulk-actions" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span id="bills-selected-count" style="font-size: 0.8rem; color: var(--text-muted);">0 bills selected</span>
+          <button type="button" class="btn-sm btn-sm-danger" id="btn-cancel-selected-bills" disabled>Cancel selected pending</button>
+          <button type="button" class="btn-sm btn-sm-danger" id="btn-delete-selected-bills" disabled>Delete selected</button>
+        </div>
         <div class="admin-table-wrapper" style="max-height: 650px;">
           <table class="admin-table">
             <thead>
               <tr>
+                <th><input type="checkbox" id="bills-select-visible" aria-label="Select all visible bills"></th>
                 <th>Customer</th>
                 <th>Date/Time</th>
                 <th>Items</th>

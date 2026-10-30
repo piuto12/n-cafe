@@ -7,6 +7,7 @@ const AdminState = {
   transactions: [],
   bookings: [],
   billStatusFilter: 'all',
+  selectedBillIds: new Set(),
   pollerInterval: null,
   pollInProgress: false,
   lastTransactionPollAt: 0,
@@ -340,12 +341,21 @@ const AdminState = {
     if (billsStatusFilter) {
       billsStatusFilter.addEventListener('change', () => {
         this.billStatusFilter = billsStatusFilter.value;
+        this.selectedBillIds.clear();
         this.updateBillsTableOnly();
       });
     }
 
     const billsTable = document.getElementById('bills-tbody');
     if (billsTable) {
+      billsTable.addEventListener('change', (event) => {
+        const checkbox = event.target.closest('input[data-booking-select]');
+        if (!checkbox) return;
+        if (checkbox.checked) this.selectedBillIds.add(checkbox.dataset.bookingId);
+        else this.selectedBillIds.delete(checkbox.dataset.bookingId);
+        this.updateBillsSelectionControls();
+      });
+
       billsTable.addEventListener('click', async (event) => {
         const button = event.target.closest('button[data-booking-action]');
         if (!button) return;
@@ -366,6 +376,7 @@ const AdminState = {
           const result = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(result.error || 'The bill action failed.');
 
+          this.selectedBillIds.delete(bookingId);
           await this.fetchBookings();
           this.updateBillsTableOnly();
           this.updateDashboardMetricsOnly();
@@ -378,6 +389,27 @@ const AdminState = {
           button.disabled = false;
         }
       });
+    }
+
+    const selectVisibleBills = document.getElementById('bills-select-visible');
+    if (selectVisibleBills) {
+      selectVisibleBills.addEventListener('change', () => {
+        document.querySelectorAll('#bills-tbody input[data-booking-select]').forEach(checkbox => {
+          checkbox.checked = selectVisibleBills.checked;
+          if (checkbox.checked) this.selectedBillIds.add(checkbox.dataset.bookingId);
+          else this.selectedBillIds.delete(checkbox.dataset.bookingId);
+        });
+        this.updateBillsSelectionControls();
+      });
+    }
+
+    const cancelSelectedBills = document.getElementById('btn-cancel-selected-bills');
+    if (cancelSelectedBills) {
+      cancelSelectedBills.addEventListener('click', () => this.runBulkBillAction('cancel'));
+    }
+    const deleteSelectedBills = document.getElementById('btn-delete-selected-bills');
+    if (deleteSelectedBills) {
+      deleteSelectedBills.addEventListener('click', () => this.runBulkBillAction('delete'));
     }
 
     // POS Clear Cart button
@@ -1383,6 +1415,87 @@ const AdminState = {
     return '<span class="badge badge-warning">Pending</span>';
   },
 
+  updateBillsSelectionControls(visibleBookings = null) {
+    const visibleIds = visibleBookings
+      ? new Set(visibleBookings.map(booking => booking.id))
+      : new Set(Array.from(document.querySelectorAll('#bills-tbody input[data-booking-select]'))
+        .map(checkbox => checkbox.dataset.bookingId));
+    const selectedVisible = [...this.selectedBillIds].filter(id => visibleIds.has(id));
+    const count = document.getElementById('bills-selected-count');
+    const cancelButton = document.getElementById('btn-cancel-selected-bills');
+    const deleteButton = document.getElementById('btn-delete-selected-bills');
+    const selectVisible = document.getElementById('bills-select-visible');
+    const pendingCount = selectedVisible.filter(id => {
+      const booking = this.bookings.find(item => item.id === id);
+      return booking && this.getBookingDisplayStatus(booking) === 'pending';
+    }).length;
+
+    if (count) count.textContent = `${this.selectedBillIds.size} bill${this.selectedBillIds.size === 1 ? '' : 's'} selected`;
+    if (cancelButton) cancelButton.disabled = pendingCount === 0;
+    if (deleteButton) deleteButton.disabled = this.selectedBillIds.size === 0;
+    if (selectVisible) {
+      selectVisible.checked = visibleIds.size > 0 && [...visibleIds].every(id => this.selectedBillIds.has(id));
+      selectVisible.indeterminate = [...visibleIds].some(id => this.selectedBillIds.has(id)) && !selectVisible.checked;
+    }
+  },
+
+  async runBulkBillAction(action) {
+    const selectedBookings = this.bookings.filter(booking =>
+      this.selectedBillIds.has(booking.id) &&
+      (action !== 'cancel' || this.getBookingDisplayStatus(booking) === 'pending')
+    );
+    if (selectedBookings.length === 0) return;
+
+    const isCancel = action === 'cancel';
+    const confirmation = isCancel
+      ? `Cancel ${selectedBookings.length} selected pending bill${selectedBookings.length === 1 ? '' : 's'}? This does not issue refunds or restore stock.`
+      : `Permanently delete ${selectedBookings.length} selected bill record${selectedBookings.length === 1 ? '' : 's'}? Their accounting ledger entries will be retained.`;
+    if (!window.confirm(confirmation)) return;
+
+    const cancelButton = document.getElementById('btn-cancel-selected-bills');
+    const deleteButton = document.getElementById('btn-delete-selected-bills');
+    if (cancelButton) cancelButton.disabled = true;
+    if (deleteButton) deleteButton.disabled = true;
+
+    const failures = [];
+    for (let start = 0; start < selectedBookings.length; start += 5) {
+      const batch = selectedBookings.slice(start, start + 5);
+      const results = await Promise.all(batch.map(async booking => {
+        try {
+          const endpoint = isCancel
+            ? `/api/bookings/${encodeURIComponent(booking.id)}/cancel`
+            : `/api/bookings/${encodeURIComponent(booking.id)}`;
+          const response = await this.fetchWithAuth(endpoint, { method: isCancel ? 'POST' : 'DELETE' });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || 'The bill action failed.');
+          return { id: booking.id };
+        } catch (error) {
+          return { id: booking.id, error };
+        }
+      }));
+      results.forEach(result => {
+        if (result.error) failures.push(result);
+        else this.selectedBillIds.delete(result.id);
+      });
+      if (!this.token) return;
+    }
+
+    try {
+      await this.fetchBookings();
+      this.updateBillsTableOnly();
+      this.updateDashboardMetricsOnly();
+      this.updateSalesReportTable();
+      this.updateHistoryTableOnly();
+      if (failures.length > 0) {
+        alert(`${selectedBookings.length - failures.length} bill${selectedBookings.length - failures.length === 1 ? '' : 's'} updated. ${failures.length} failed: ${failures.map(item => `${item.id}: ${item.error.message}`).join('; ')}`);
+      }
+    } catch (error) {
+      alert(`Could not refresh bills after the bulk action: ${error.message}`);
+    } finally {
+      this.updateBillsSelectionControls();
+    }
+  },
+
   updateBillsTableOnly() {
     const tbody = document.getElementById('bills-tbody');
     if (!tbody) return;
@@ -1393,16 +1506,19 @@ const AdminState = {
       const status = this.getBookingDisplayStatus(booking);
       return this.billStatusFilter === 'all' || status === this.billStatusFilter;
     });
+    const visibleIds = new Set(bookings.map(booking => booking.id));
+    this.selectedBillIds = new Set([...this.selectedBillIds].filter(id => visibleIds.has(id)));
     tbody.replaceChildren();
 
     if (bookings.length === 0) {
       const row = document.createElement('tr');
       const cell = document.createElement('td');
-      cell.colSpan = 7;
+      cell.colSpan = 8;
       cell.textContent = 'No bills found for this status.';
       cell.style.cssText = 'text-align:center; color:var(--text-muted); padding:1rem;';
       row.appendChild(cell);
       tbody.appendChild(row);
+      this.updateBillsSelectionControls(bookings);
       return;
     }
 
@@ -1423,6 +1539,14 @@ const AdminState = {
       status.innerHTML = this.getBookingStatusBadge(this.getBookingDisplayStatus(booking));
       const actions = document.createElement('td');
       actions.style.cssText = 'display:flex; gap:0.4rem; flex-wrap:wrap;';
+      const selection = document.createElement('td');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.dataset.bookingSelect = 'true';
+      checkbox.dataset.bookingId = booking.id;
+      checkbox.checked = this.selectedBillIds.has(booking.id);
+      checkbox.setAttribute('aria-label', `Select bill for ${booking.customerName || 'customer'}`);
+      selection.appendChild(checkbox);
 
       if (this.getBookingDisplayStatus(booking) === 'pending') {
         const cancelButton = document.createElement('button');
@@ -1442,9 +1566,10 @@ const AdminState = {
       deleteButton.textContent = 'Delete';
       actions.appendChild(deleteButton);
 
-      row.append(customer, time, items, amount, payment, status, actions);
+      row.append(selection, customer, time, items, amount, payment, status, actions);
       tbody.appendChild(row);
     });
+    this.updateBillsSelectionControls(bookings);
   },
 
   renderTab1() {
