@@ -93,9 +93,8 @@ New-NetFirewallRule -DisplayName "N Cafe local web server" -Direction Inbound `
 ```
 
 Only devices on your trusted local network should be able to access this server. Do not
-configure router port forwarding to expose it to the public Internet. For public hosting,
-use the Render instructions below; Render also needs the production environment
-variables and MongoDB connection configured there.
+configure router port forwarding to expose it to the public Internet. For worldwide
+access, follow the company Linux server steps below or use the Render instructions.
 
 ### Troubleshooting local startup
 
@@ -111,6 +110,218 @@ variables and MongoDB connection configured there.
   computer's current IPv4 address.
 
 To stop the server, focus its PowerShell window and press **Ctrl+C**.
+
+---
+
+## Host Publicly on a Company Ubuntu/Debian Server
+
+Use this section if your company already provides a public Linux server. The website
+will be available worldwide at your domain. Coordinate with your company's IT/server
+administrator before opening firewall ports or changing DNS. These commands assume
+Ubuntu or Debian, SSH access with `sudo`, and a domain name pointed at the server.
+
+### 1. Point your domain to the server
+
+Ask your administrator for the server's public IP address. At your domain's DNS
+provider, create an **A record** for the chosen hostname (for example, `cafe.example.com`)
+pointing to that IP. If your server uses IPv6, configure an AAAA record too. Wait for
+DNS to update before requesting an HTTPS certificate.
+
+### 2. Install server packages and Node.js 22
+
+Connect to the server using SSH, then install Git, Nginx, and certificate tools:
+
+```bash
+sudo apt update
+sudo apt install -y git nginx certbot python3-certbot-nginx
+```
+
+Install **Node.js 22** using your company's approved package source or Node.js
+installation procedure. Check the installed version and path:
+
+```bash
+node --version
+command -v node
+npm --version
+```
+
+`node --version` must report version 22.x. Keep the path from `command -v node`; you
+will need it in the systemd service below.
+
+### 3. Install the app
+
+Clone the repository into `/opt/n-cafe` (use your company's approved Git URL and
+authentication method if it differs):
+
+```bash
+sudo git clone https://github.com/piuto12/n-cafe.git /opt/n-cafe
+cd /opt/n-cafe
+sudo npm ci --omit=dev
+```
+
+Create a dedicated, unprivileged Linux account for the app and its writable data
+directory:
+
+```bash
+sudo useradd --system --home-dir /var/lib/n-cafe --shell /usr/sbin/nologin ncafe
+sudo install -d -o ncafe -g ncafe -m 750 /var/lib/n-cafe
+```
+
+### 4. Configure production environment variables
+
+Production mode requires MongoDB; it does not use the local SQLite database. Use a
+company-managed MongoDB service or MongoDB Atlas, and create a database/user for N Cafe.
+Restrict database network access to this app server when possible.
+
+Create a root-only environment file:
+
+```bash
+sudo install -d -m 700 /etc/n-cafe
+sudo nano /etc/n-cafe/n-cafe.env
+```
+
+Put these settings in the file, replacing the example values with your own:
+
+```dotenv
+NODE_ENV=production
+PORT=8000
+JWT_SECRET=replace-with-at-least-32-random-characters
+ADMIN_PASSWORD=replace-with-a-strong-unique-password
+OPERATOR_PIN=replace-with-exactly-four-digits
+MONGODB_URI=mongodb+srv://<database-user>:<url-encoded-password>@<cluster>/<database>?retryWrites=true&w=majority
+MONGODB_DATABASE=n_cafe
+ALLOWED_ORIGIN=https://cafe.example.com
+DATA_DIR=/var/lib/n-cafe
+```
+
+Use the real public HTTPS origin for `ALLOWED_ORIGIN` (no trailing slash). Generate a
+secret with a trusted password manager or `openssl rand -base64 48`. URL-encode special
+characters in the MongoDB password before putting it in the connection URI. Save the
+file, then restrict access:
+
+```bash
+sudo chown root:root /etc/n-cafe/n-cafe.env
+sudo chmod 600 /etc/n-cafe/n-cafe.env
+```
+
+Never put these production values in the repository, `.env.example`, or a message.
+
+### 5. Run the app as a system service
+
+Create the systemd unit:
+
+```bash
+sudo nano /etc/systemd/system/n-cafe.service
+```
+
+Paste this configuration. Replace `/usr/bin/node` with the exact path printed by
+`command -v node` in Step 2 if it is different:
+
+```ini
+[Unit]
+Description=N Cafe web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ncafe
+Group=ncafe
+WorkingDirectory=/opt/n-cafe
+EnvironmentFile=/etc/n-cafe/n-cafe.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/n-cafe
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable the service and check that it starts:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now n-cafe
+sudo systemctl status n-cafe
+sudo journalctl -u n-cafe -n 50 --no-pager
+```
+
+The app listens internally on port 8000. Do not expose that port directly to the
+Internet; Nginx will accept public web traffic and forward it to the app.
+
+### 6. Configure Nginx as the public HTTPS front end
+
+Create the Nginx site file and replace `cafe.example.com` with your domain:
+
+```bash
+sudo nano /etc/nginx/sites-available/n-cafe
+```
+
+```nginx
+server {
+    listen 80;
+    server_name cafe.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Enable the site and validate Nginx:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/n-cafe /etc/nginx/sites-enabled/n-cafe
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Ask your company administrator to allow inbound **TCP 80 and 443** to this server.
+Keep port 8000 blocked from public access. Once DNS points to this server and port 80 is
+reachable, issue the HTTPS certificate:
+
+```bash
+sudo certbot --nginx -d cafe.example.com
+```
+
+Follow Certbot's prompts and choose the option to redirect HTTP traffic to HTTPS.
+
+### 7. Verify and maintain the deployment
+
+Open `https://cafe.example.com` and `https://cafe.example.com/admin`. Check the health
+endpoint:
+
+```bash
+curl -i https://cafe.example.com/health
+```
+
+It should return HTTP 200 and report a connected database. If startup fails, inspect
+`sudo journalctl -u n-cafe -n 100 --no-pager` and verify the MongoDB URI, network access,
+and environment file values.
+
+To deploy a later update:
+
+```bash
+cd /opt/n-cafe
+sudo git pull --ff-only
+sudo npm ci --omit=dev
+sudo systemctl restart n-cafe
+sudo systemctl status n-cafe
+```
+
+Arrange regular MongoDB backups with your database administrator. Keep Node.js, Linux,
+Nginx, and the app updated, and do not expose the database or app port directly to the
+public Internet.
 
 ---
 
